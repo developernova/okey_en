@@ -10,6 +10,7 @@ import {
   transcriptSegments,
 } from "@/db/schema"
 import { env } from "@/server/config/env"
+import { cefrRange } from "@/server/content/cefr"
 import { extractPhrases } from "@/server/content/openrouter"
 import {
   countLexemes,
@@ -20,7 +21,7 @@ import type { ImportEpisodeInput } from "@/server/content/types"
 import { getYoutubeTranscript } from "@/server/content/youtube-transcript"
 import { AppError, toErrorMessage } from "@/server/shared/errors"
 
-const PROMPT_VERSION = "episode-phrases-v1"
+const PROMPT_VERSION = "episode-phrases-v2-auto-cefr"
 
 export async function importEpisode(input: ImportEpisodeInput) {
   const db = getDb()
@@ -43,7 +44,6 @@ export async function importEpisode(input: ImportEpisodeInput) {
     )
     const extracted = await extractPhrases({
       segments,
-      levels: input.targetLevels,
       maxPhrases: input.maxPhrases,
     })
 
@@ -69,8 +69,6 @@ export async function importEpisode(input: ImportEpisodeInput) {
           set: {
             title: input.program.title,
             description: input.program.description,
-            levelMin: input.program.levelMin,
-            levelMax: input.program.levelMax,
           },
         })
         .returning({ id: programs.id })
@@ -172,6 +170,27 @@ export async function importEpisode(input: ImportEpisodeInput) {
           })
       }
 
+      const storedLevels = await tx
+        .select({ cefr: phrasesTable.cefr })
+        .from(phrasesTable)
+        .innerJoin(episodes, eq(episodes.id, phrasesTable.episodeId))
+        .where(
+          and(
+            eq(episodes.programId, program.id),
+            eq(phrasesTable.isActive, true)
+          )
+        )
+      const programRange = cefrRange(storedLevels.map((item) => item.cefr))
+      if (programRange) {
+        await tx
+          .update(programs)
+          .set({
+            levelMin: programRange.min,
+            levelMax: programRange.max,
+          })
+          .where(eq(programs.id, program.id))
+      }
+
       await tx
         .update(episodes)
         .set({ ingestionStatus: "ready", updatedAt: new Date() })
@@ -183,6 +202,8 @@ export async function importEpisode(input: ImportEpisodeInput) {
         segmentCount: segments.length,
         phraseCount: extracted.length,
         lexemeCount: lexemeCounts.length,
+        programLevelMin: programRange?.min ?? input.program.levelMin,
+        programLevelMax: programRange?.max ?? input.program.levelMax,
       }
     })
 

@@ -35,6 +35,16 @@
 }
 
 :root {
+  --app-safe-top: max(
+    env(safe-area-inset-top, 0px),
+    var(--tg-safe-area-inset-top, 0px),
+    var(--tg-content-safe-area-inset-top, 0px)
+  );
+  --app-safe-bottom: max(
+    env(safe-area-inset-bottom, 0px),
+    var(--tg-safe-area-inset-bottom, 0px),
+    var(--tg-content-safe-area-inset-bottom, 0px)
+  );
   --background: oklch(0.992 0.004 95);
   --foreground: oklch(0.18 0.01 80);
   --card: oklch(1 0 0);

@@ -11,13 +11,19 @@ import {
 } from "@/db/schema"
 
 const levels = ["A1", "A2", "B1", "B2"] as const
+const courseLevels = ["A1", "A2", "B1", "B2", "C1", "C2"] as const
 export type PlacementLevel = (typeof levels)[number]
 
 function levelDistance(level: PlacementLevel, min: string, max: string) {
-  const target = levels.indexOf(level)
-  const minimum = Math.max(0, levels.indexOf(min as PlacementLevel))
-  const maximumIndex = levels.indexOf(max as PlacementLevel)
-  const maximum = maximumIndex === -1 ? levels.length - 1 : maximumIndex
+  const target = courseLevels.indexOf(level)
+  const minimumIndex = courseLevels.indexOf(
+    min as (typeof courseLevels)[number]
+  )
+  const maximumIndex = courseLevels.indexOf(
+    max as (typeof courseLevels)[number]
+  )
+  const minimum = minimumIndex === -1 ? 0 : minimumIndex
+  const maximum = maximumIndex === -1 ? courseLevels.length - 1 : maximumIndex
   if (target < minimum) return minimum - target
   if (target > maximum) return target - maximum
   return 0

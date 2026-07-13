@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import { CEFR_LEVELS } from "@/server/content/cefr"
+
 export const transcriptSegmentSchema = z.object({
   index: z.number().int().nonnegative(),
   text: z.string().min(1),
@@ -15,7 +17,7 @@ export const extractedPhraseSchema = z.object({
   lemma: z.string().min(1).max(120),
   translationRu: z.string().min(1).max(240),
   contextSentence: z.string().min(2).max(500),
-  cefr: z.enum(["A1", "A2", "B1", "B2", "C1", "C2"]),
+  cefr: z.enum(CEFR_LEVELS),
   segmentIndex: z.number().int().nonnegative(),
   confidence: z.number().min(0).max(1),
   rationale: z.string().min(1).max(300),
@@ -34,16 +36,12 @@ export const importEpisodeSchema = z.object({
     slug: z.string().regex(/^[a-z0-9-]+$/),
     title: z.string().min(2).max(120),
     description: z.string().max(500).optional(),
-    levelMin: z.enum(["A1", "A2", "B1", "B2", "C1"]),
-    levelMax: z.enum(["A1", "A2", "B1", "B2", "C1"]),
+    levelMin: z.enum(CEFR_LEVELS).default("A1"),
+    levelMax: z.enum(CEFR_LEVELS).default("C2"),
   }),
   sequenceNumber: z.number().int().positive(),
   durationSeconds: z.number().int().positive().optional(),
   transcriptLanguage: z.string().min(2).max(10).default("en"),
-  targetLevels: z
-    .array(z.enum(["A1", "A2", "B1", "B2", "C1", "C2"]))
-    .min(1)
-    .default(["A2", "B1"]),
   maxPhrases: z.number().int().min(5).max(30).default(15),
 })
 

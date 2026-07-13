@@ -42,6 +42,7 @@ export async function getToday(userId: string) {
     },
     episode: {
       id: plan.episodeId,
+      youtubeId: plan.youtubeId,
       title: plan.episodeTitle,
       programTitle: plan.programTitle,
       sequenceNumber: plan.sequenceNumber,

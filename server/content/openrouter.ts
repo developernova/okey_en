@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { env } from "@/server/config/env"
+import { CEFR_LEVELS } from "@/server/content/cefr"
 import {
   extractionResponseSchema,
   type ExtractedPhrase,
@@ -54,7 +55,7 @@ const phraseJsonSchema = {
             type: "string",
             description: "Exact transcript sentence containing the phrase",
           },
-          cefr: { type: "string", enum: ["A1", "A2", "B1", "B2", "C1", "C2"] },
+          cefr: { type: "string", enum: CEFR_LEVELS },
           segmentIndex: { type: "integer", minimum: 0 },
           confidence: { type: "number", minimum: 0, maximum: 1 },
           rationale: {
@@ -112,7 +113,6 @@ function chunkTranscript(
 
 async function extractChunk(input: {
   segments: TranscriptSegment[]
-  levels: string[]
   requestedCount: number
 }) {
   const config = env()
@@ -132,7 +132,8 @@ async function extractChunk(input: {
       {
         role: "user",
         content: [
-          `Return up to ${input.requestedCount} useful phrases at CEFR ${input.levels.join("–")}.`,
+          `Return up to ${input.requestedCount} useful phrases.`,
+          "Determine the CEFR level of every phrase independently from A1 to C2. Do not force phrases into a requested level range.",
           "Each phrase and context must appear verbatim in the transcript.",
           "Never select promotional calls to subscribe, like, share, follow, or watch more videos.",
           "Use the supplied segment index. Translate naturally into Russian.",
@@ -216,7 +217,6 @@ async function extractChunk(input: {
 
 export async function extractPhrases(input: {
   segments: TranscriptSegment[]
-  levels: string[]
   maxPhrases: number
 }): Promise<ExtractedPhrase[]> {
   const chunks = chunkTranscript(input.segments)
@@ -226,7 +226,6 @@ export async function extractPhrases(input: {
     results.push(
       await extractChunk({
         segments,
-        levels: input.levels,
         requestedCount: perChunk,
       })
     )

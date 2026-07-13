@@ -32,15 +32,16 @@ curl -X POST http://localhost:3000/api/admin/episodes/import \
     "title": "Episode title",
     "program": {
       "slug": "easy-english",
-      "title": "Easy English",
-      "levelMin": "A1",
-      "levelMax": "B1"
+      "title": "Easy English"
     },
     "sequenceNumber": 1,
-    "targetLevels": ["A2", "B1"],
     "maxPhrases": 15
   }'
 ```
+
+OpenRouter assigns CEFR A1–C2 to every extracted phrase. After each import,
+the course range is recalculated automatically from all active phrases in that
+course.
 
 The admin route is intentionally synchronous for the first vertical slice. Before bulk imports, move the same service behind a durable worker/queue; the `ingestion_jobs` table already provides the state model.
 
@@ -51,7 +52,7 @@ Open `/admin` and sign in with `ADMIN_API_SECRET`. The browser submits the secre
 The admin MVP supports:
 
 - catalogue totals and recent episode status;
-- creating and editing courses, descriptions, CEFR ranges, and slugs;
+- creating and editing courses, descriptions, and slugs; CEFR ranges are derived automatically from imported phrases;
 - publishing or hiding a course without deleting learner progress;
 - importing a YouTube episode into an existing course;
 - previewing a public YouTube playlist, selecting videos, and importing them sequentially with per-video progress;

@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-const courseLevels = ["A1", "A2", "B1", "B2", "C1"] as const
+const courseLevels = ["A1", "A2", "B1", "B2", "C1", "C2"] as const
 const levelSchema = z.enum(courseLevels)
 
 function validLevelRange(value: { levelMin?: string; levelMax?: string }) {
@@ -25,7 +25,11 @@ const programFields = {
 }
 
 export const createProgramSchema = z
-  .object(programFields)
+  .object({
+    ...programFields,
+    levelMin: levelSchema.default("A1"),
+    levelMax: levelSchema.default("C2"),
+  })
   .refine(validLevelRange, {
     message: "Minimum level must not exceed maximum level",
     path: ["levelMax"],

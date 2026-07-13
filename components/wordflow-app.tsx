@@ -39,6 +39,7 @@ type Screen =
   | "result"
   | "reminder"
   | "today"
+  | "video"
   | "review"
   | "interview"
   | "complete"
@@ -65,6 +66,7 @@ type TodayDto = {
   }
   episode: {
     id: string
+    youtubeId: string
     title: string
     programTitle: string
     sequenceNumber: number
@@ -405,6 +407,16 @@ function Icon({
   return <HugeiconsIcon icon={icon} size={size} strokeWidth={strokeWidth} />
 }
 
+const subscribeToTelegramEnvironment = () => () => undefined
+const getServerTelegramBackSnapshot = () => false
+
+function getTelegramBackSnapshot() {
+  const webApp = getTelegramWebApp()
+  return Boolean(
+    webApp?.initData && webApp.isVersionAtLeast("6.1") && webApp.BackButton
+  )
+}
+
 function PhoneShell({
   children,
   className,
@@ -435,10 +447,20 @@ function TopBar({
   onBack?: () => void
   right?: React.ReactNode
 }) {
+  const nativeBackAvailable = React.useSyncExternalStore(
+    subscribeToTelegramEnvironment,
+    getTelegramBackSnapshot,
+    getServerTelegramBackSnapshot
+  )
+
+  if (nativeBackAvailable && onBack && !title && !right) {
+    return <div className="h-[var(--app-safe-top)]" aria-hidden="true" />
+  }
+
   return (
-    <header className="flex h-16 items-center justify-between px-5 pt-[env(safe-area-inset-top)]">
+    <header className="flex h-[calc(64px+var(--app-safe-top))] items-center justify-between px-5 pt-[var(--app-safe-top)]">
       <div className="w-10">
-        {onBack && (
+        {onBack && !nativeBackAvailable && (
           <Button
             variant="ghost"
             size="icon"
@@ -720,7 +742,8 @@ export function WordflowApp() {
     if (screen === "test") setScreen("welcome")
     else if (screen === "result") setScreen("test")
     else if (screen === "reminder") setScreen("result")
-    else if (screen === "review" || screen === "settings") setScreen("today")
+    else if (screen === "video" || screen === "review" || screen === "settings")
+      setScreen("today")
     else if (screen === "interview") {
       resetInterview()
       setScreen(videoDone && cardsDone && retellDone ? "complete" : "today")
@@ -743,8 +766,10 @@ export function WordflowApp() {
   }, [syncPendingReviews])
 
   React.useEffect(() => {
-    const backButton = getTelegramWebApp()?.BackButton
-    if (!backButton) return
+    const webApp = getTelegramWebApp()
+    const backButton = webApp?.BackButton
+    if (!webApp?.initData || !webApp.isVersionAtLeast("6.1") || !backButton)
+      return
     const canGoBack = !["welcome", "today"].includes(screen)
     if (canGoBack) backButton.show().onClick(goBack)
     else backButton.hide()
@@ -1087,6 +1112,15 @@ export function WordflowApp() {
     setScreen(cardsDone && retellDone ? "complete" : "today")
   }
 
+  function openYoutube(url: string) {
+    const webApp = getTelegramWebApp()
+    if (webApp?.initData && webApp.openLink) {
+      webApp.openLink(url)
+      return
+    }
+    window.open(url, "_blank", "noopener,noreferrer")
+  }
+
   async function persistPlanItem(type: "watch" | "review") {
     const episodeId = todayData?.episode.id
     if (!episodeId) return
@@ -1166,8 +1200,8 @@ export function WordflowApp() {
   if (screen === "welcome") {
     return (
       <PhoneShell>
-        <div className="flex min-h-dvh flex-col px-6 pb-[calc(24px+env(safe-area-inset-bottom))]">
-          <div className="flex items-center gap-2 pt-7 text-sm font-semibold tracking-tight">
+        <div className="flex min-h-dvh flex-col px-6 pb-[calc(24px+var(--app-safe-bottom))]">
+          <div className="flex items-center gap-2 pt-[calc(28px+var(--app-safe-top))] text-sm font-semibold tracking-tight">
             <span className="grid size-7 place-items-center rounded-lg bg-foreground text-background">
               <Icon icon={SparklesIcon} size={15} />
             </span>
@@ -1288,7 +1322,7 @@ export function WordflowApp() {
   if (screen === "result") {
     return (
       <PhoneShell>
-        <div className="flex min-h-dvh flex-col px-6 pb-6">
+        <div className="flex min-h-dvh flex-col px-6 pt-[var(--app-safe-top)] pb-[calc(24px+var(--app-safe-bottom))]">
           <div className="flex flex-1 flex-col items-center justify-center text-center">
             <div className="mb-8 grid size-24 place-items-center rounded-full bg-[#e6efe4] text-[#466a4a] dark:bg-[#1d3021] dark:text-[#a9caaa]">
               <Icon icon={Video01Icon} size={38} />
@@ -1332,7 +1366,7 @@ export function WordflowApp() {
     return (
       <PhoneShell>
         <TopBar onBack={() => setScreen("result")} />
-        <div className="flex min-h-[calc(100dvh-64px)] flex-col px-5 pb-[calc(20px+env(safe-area-inset-bottom))]">
+        <div className="flex min-h-[calc(100dvh-64px-var(--app-safe-top))] flex-col px-5 pb-[calc(20px+var(--app-safe-bottom))]">
           <div className="pt-4">
             <div className="mb-6 grid size-12 place-items-center rounded-2xl bg-muted">
               <Icon icon={Notification01Icon} size={23} />
@@ -1416,7 +1450,7 @@ export function WordflowApp() {
     return (
       <PhoneShell>
         <TopBar onBack={() => setScreen("today")} title="Настройки" />
-        <div className="min-h-[calc(100dvh-64px)] px-5 pb-[calc(24px+env(safe-area-inset-bottom))]">
+        <div className="min-h-[calc(100dvh-64px-var(--app-safe-top))] px-5 pb-[calc(24px+var(--app-safe-bottom))]">
           <div className="pt-4">
             <p className="text-sm font-medium text-muted-foreground">
               Программа
@@ -1664,7 +1698,7 @@ export function WordflowApp() {
           </div>
 
           {interviewCompleted ? (
-            <div className="border-t bg-background p-4 pb-[calc(16px+env(safe-area-inset-bottom))]">
+            <div className="border-t bg-background p-4 pb-[calc(16px+var(--app-safe-bottom))]">
               <Button
                 size="lg"
                 className="h-14 w-full rounded-2xl text-base"
@@ -1675,7 +1709,7 @@ export function WordflowApp() {
             </div>
           ) : interviewToken ? (
             <form
-              className="border-t bg-background p-4 pb-[calc(16px+env(safe-area-inset-bottom))]"
+              className="border-t bg-background p-4 pb-[calc(16px+var(--app-safe-bottom))]"
               onSubmit={(event) => {
                 event.preventDefault()
                 void sendInterviewAnswer()
@@ -1763,6 +1797,67 @@ export function WordflowApp() {
     )
   }
 
+  if (screen === "video") {
+    const episode = todayData?.episode
+    return (
+      <PhoneShell className="flex flex-col">
+        <TopBar onBack={() => setScreen("today")} title="Смотреть выпуск" />
+        <div className="flex min-h-[calc(100dvh-64px-var(--app-safe-top))] flex-col px-5 pb-[calc(20px+var(--app-safe-bottom))]">
+          {episode ? (
+            <>
+              <div className="aspect-video overflow-hidden rounded-[22px] bg-black shadow-sm">
+                <iframe
+                  className="size-full"
+                  src={`https://www.youtube-nocookie.com/embed/${episode.youtubeId}?playsinline=1&rel=0`}
+                  title={episode.title}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  allowFullScreen
+                />
+              </div>
+              <div className="pt-5">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {episode.programTitle} · {episode.durationMinutes} минут
+                </p>
+                <h1 className="mt-2 text-[24px] leading-tight font-semibold tracking-tight">
+                  {episode.title}
+                </h1>
+                <button
+                  type="button"
+                  onClick={() => openYoutube(episode.youtubeUrl)}
+                  className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl border bg-card px-4 text-sm font-semibold"
+                >
+                  Открыть в YouTube
+                  <Icon icon={ArrowRight01Icon} size={15} />
+                </button>
+              </div>
+              <div className="flex-1" />
+              <Button
+                size="lg"
+                className="mt-8 h-14 w-full rounded-2xl text-base"
+                onClick={videoDone ? () => setScreen("today") : markVideoDone}
+              >
+                {videoDone ? (
+                  <>
+                    Вернуться к плану <Icon icon={ArrowRight01Icon} />
+                  </>
+                ) : (
+                  <>
+                    Я посмотрел — дальше <Icon icon={Tick02Icon} />
+                  </>
+                )}
+              </Button>
+            </>
+          ) : (
+            <div className="grid flex-1 place-items-center text-center text-sm text-muted-foreground">
+              Видео пока не загрузилось
+            </div>
+          )}
+        </div>
+      </PhoneShell>
+    )
+  }
+
   if (screen === "review") {
     const reviewQueue = todayData?.queue.cards ?? []
     const card = reviewQueue[cardIndex]
@@ -1794,7 +1889,7 @@ export function WordflowApp() {
             </span>
           }
         />
-        <div className="flex min-h-[calc(100dvh-64px)] flex-col px-5 pb-[calc(20px+env(safe-area-inset-bottom))]">
+        <div className="flex min-h-[calc(100dvh-64px-var(--app-safe-top))] flex-col px-5 pb-[calc(20px+var(--app-safe-bottom))]">
           <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full bg-foreground transition-all"
@@ -1865,7 +1960,7 @@ export function WordflowApp() {
     )
     return (
       <PhoneShell>
-        <div className="flex min-h-dvh flex-col px-6 pb-6">
+        <div className="flex min-h-dvh flex-col px-6 pt-[var(--app-safe-top)] pb-[calc(24px+var(--app-safe-bottom))]">
           <div className="flex flex-1 flex-col items-center justify-center text-center">
             <div className="grid size-20 place-items-center rounded-full bg-[#e2eee3] text-[#3d7548] dark:bg-[#1c3422] dark:text-[#a0d0a8]">
               <Icon icon={CheckmarkCircle02Icon} size={38} />
@@ -1946,8 +2041,8 @@ export function WordflowApp() {
     5
   return (
     <PhoneShell>
-      <div className="min-h-dvh px-5 pb-[calc(24px+env(safe-area-inset-bottom))]">
-        <header className="flex items-center justify-between pt-[calc(22px+env(safe-area-inset-top))] pb-5">
+      <div className="min-h-dvh px-5 pb-[calc(24px+var(--app-safe-bottom))]">
+        <header className="flex items-center justify-between pt-[calc(22px+var(--app-safe-top))] pb-5">
           <div>
             <p className="text-xs font-medium text-muted-foreground">
               {todayData?.date ?? "Сегодня"}
@@ -2016,13 +2111,11 @@ export function WordflowApp() {
             done={videoDone}
             active={activeStep === 0}
             onClick={() => {
-              if (episode)
-                window.open(episode.youtubeUrl, "_blank", "noopener,noreferrer")
+              if (episode) setScreen("video")
             }}
-            secondaryAction={markVideoDone}
-            secondaryLabel="Уже посмотрел → дальше"
             accent="bg-[#e9e2d0] text-[#75653b] dark:bg-[#332f24] dark:text-[#ddcc98]"
-            action="Открыть YouTube"
+            action={videoDone ? "Открыть снова" : "Открыть"}
+            showActionWhenDone
           />
           <TaskCard
             icon={Cards01Icon}
@@ -2099,6 +2192,7 @@ function TaskCard({
   secondaryLabel,
   accent,
   action,
+  showActionWhenDone = false,
 }: {
   icon: typeof PlayIcon
   title: string
@@ -2110,6 +2204,7 @@ function TaskCard({
   secondaryLabel?: string
   accent: string
   action: string
+  showActionWhenDone?: boolean
 }) {
   return (
     <article
@@ -2151,7 +2246,7 @@ function TaskCard({
             </div>
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">{meta}</p>
-          {!done && (
+          {(!done || showActionWhenDone) && (
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 onClick={onClick}

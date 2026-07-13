@@ -162,7 +162,7 @@ export async function updateProgram(
     }
   }
 
-  const levels = ["A1", "A2", "B1", "B2", "C1"]
+  const levels = ["A1", "A2", "B1", "B2", "C1", "C2"]
   const levelMin = input.levelMin ?? current.levelMin
   const levelMax = input.levelMax ?? current.levelMax
   if (levels.indexOf(levelMin) > levels.indexOf(levelMax)) {

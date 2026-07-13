@@ -92,8 +92,6 @@ type ProgramDraft = {
   slug: string
   title: string
   description: string
-  levelMin: string
-  levelMax: string
   isActive: boolean
 }
 
@@ -101,12 +99,8 @@ const blankProgram: ProgramDraft = {
   slug: "",
   title: "",
   description: "",
-  levelMin: "A2",
-  levelMax: "B1",
   isActive: true,
 }
-
-const levelOptions = ["A1", "A2", "B1", "B2", "C1"]
 
 function formatDate(value: string | null) {
   if (!value) return "—"
@@ -191,7 +185,6 @@ export function AdminApp() {
     title: "",
     sequenceNumber: 1,
     transcriptLanguage: "en",
-    targetLevels: "A2, B1",
     maxPhrases: 15,
   })
 
@@ -322,8 +315,6 @@ export function AdminApp() {
       slug: program.slug,
       title: program.title,
       description: program.description ?? "",
-      levelMin: program.levelMin,
-      levelMax: program.levelMax,
       isActive: program.isActive,
     })
   }
@@ -438,15 +429,9 @@ export function AdminApp() {
               slug: program.slug,
               title: program.title,
               description: program.description ?? undefined,
-              levelMin: program.levelMin,
-              levelMax: program.levelMax,
             },
             sequenceNumber: importDraft.sequenceNumber,
             transcriptLanguage: importDraft.transcriptLanguage,
-            targetLevels: importDraft.targetLevels
-              .split(",")
-              .map((item) => item.trim().toUpperCase())
-              .filter(Boolean),
             maxPhrases: importDraft.maxPhrases,
           }),
         }),
@@ -864,7 +849,7 @@ export function AdminApp() {
               <section>
                 <PageHeading
                   title="Курсы"
-                  description="Структура каталога и диапазоны уровней"
+                  description="Структура каталога; диапазон уровней ИИ пересчитывает по фразам"
                   action={
                     <Button
                       onClick={() => setShowCreateProgram((value) => !value)}
@@ -913,7 +898,11 @@ export function AdminApp() {
                               {program.slug}
                             </TableCell>
                             <TableCell>
-                              {program.levelMin}–{program.levelMax}
+                              {program.episodes.length > 0
+                                ? program.levelMin === program.levelMax
+                                  ? program.levelMin
+                                  : `${program.levelMin}–${program.levelMax}`
+                                : "После первого импорта"}
                             </TableCell>
                             <TableCell>{program.episodes.length}</TableCell>
                             <TableCell>
@@ -1061,18 +1050,6 @@ export function AdminApp() {
                             required
                           />
                         </Field>
-                        <Field label="Уровни фраз">
-                          <Input
-                            value={importDraft.targetLevels}
-                            onChange={(event) =>
-                              setImportDraft((current) => ({
-                                ...current,
-                                targetLevels: event.target.value,
-                              }))
-                            }
-                            required
-                          />
-                        </Field>
                         <Field label="Максимум фраз">
                           <Input
                             type="number"
@@ -1089,6 +1066,10 @@ export function AdminApp() {
                           />
                         </Field>
                       </div>
+                      <p className="mt-4 rounded-lg bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
+                        Уровень каждой фразы и диапазон курса определит ИИ во
+                        время импорта.
+                      </p>
                       <p className="mt-4 text-sm text-amber-800">
                         Не закрывай страницу во время импорта: субтитры и фразы
                         обрабатываются синхронно.
@@ -1233,22 +1214,9 @@ function ProgramForm({
             required
           />
         </Field>
-        <Field label="От">
-          <LevelSelect
-            value={draft.levelMin}
-            onChange={(levelMin) =>
-              onChange((current) => ({ ...current, levelMin }))
-            }
-          />
-        </Field>
-        <Field label="До">
-          <LevelSelect
-            value={draft.levelMax}
-            onChange={(levelMax) =>
-              onChange((current) => ({ ...current, levelMax }))
-            }
-          />
-        </Field>
+        <div className="flex items-center rounded-md bg-zinc-50 px-3 text-xs leading-5 text-zinc-500 lg:col-span-2">
+          Уровень определится автоматически после импорта видео.
+        </div>
         <Field label="Описание" className="sm:col-span-2 lg:col-span-5">
           <Textarea
             rows={2}
@@ -1282,29 +1250,6 @@ function ProgramForm({
         )}
       </div>
     </form>
-  )
-}
-
-function LevelSelect({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (value: string) => void
-}) {
-  return (
-    <Select value={value} onValueChange={(next) => next && onChange(next)}>
-      <SelectTrigger className="w-full">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {levelOptions.map((level) => (
-          <SelectItem key={level} value={level}>
-            {level}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
   )
 }
 

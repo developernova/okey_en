@@ -42,8 +42,6 @@ export type PlaylistProgram = {
   slug: string
   title: string
   description: string | null
-  levelMin: string
-  levelMax: string
   episodes: Array<{ sequenceNumber: number }>
 }
 
@@ -127,7 +125,6 @@ export function PlaylistImporter({
     nextSequence(initialProgram)
   )
   const [transcriptLanguage, setTranscriptLanguage] = React.useState("en")
-  const [targetLevels, setTargetLevels] = React.useState("A2, B1")
   const [maxPhrases, setMaxPhrases] = React.useState(15)
   const [results, setResults] = React.useState<Record<string, ImportResult>>({})
   const [running, setRunning] = React.useState(false)
@@ -226,18 +223,12 @@ export function PlaylistImporter({
               slug: program.slug,
               title: program.title,
               description: program.description ?? undefined,
-              levelMin: program.levelMin,
-              levelMax: program.levelMax,
             },
             sequenceNumber: startSequence + index,
             ...(item.durationSeconds > 0
               ? { durationSeconds: item.durationSeconds }
               : {}),
             transcriptLanguage,
-            targetLevels: targetLevels
-              .split(",")
-              .map((level) => level.trim().toUpperCase())
-              .filter(Boolean),
             maxPhrases,
           }),
         })
@@ -446,7 +437,7 @@ export function PlaylistImporter({
                 отменяет уже готовые.
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div className="space-y-2 sm:col-span-2">
                 <Label>Курс</Label>
                 <Select value={programId} onValueChange={chooseProgram}>
@@ -497,14 +488,9 @@ export function PlaylistImporter({
                   }
                 />
               </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="playlist-levels">Уровни фраз</Label>
-                <Input
-                  id="playlist-levels"
-                  value={targetLevels}
-                  onChange={(event) => setTargetLevels(event.target.value)}
-                  placeholder="A2, B1"
-                />
+              <div className="flex items-center rounded-lg bg-muted/60 px-3 text-sm leading-5 text-muted-foreground sm:col-span-2 lg:col-span-4">
+                ИИ сам определит CEFR каждой фразы и обновит диапазон курса
+                после каждого видео.
               </div>
             </CardContent>
             {running && (

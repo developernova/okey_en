@@ -27,6 +27,7 @@ export type TelegramWebApp = {
   enableVerticalSwipes?(): void
   requestFullscreen?(): void
   exitFullscreen?(): void
+  openLink?(url: string, options?: { try_instant_view?: boolean }): void
   addToHomeScreen?(): void
   BackButton?: BackButton
   CloudStorage?: CloudStorage
