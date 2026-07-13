@@ -2042,7 +2042,7 @@ export function WordflowApp() {
   return (
     <PhoneShell>
       <div className="min-h-dvh px-5 pb-[calc(24px+var(--app-safe-bottom))]">
-        <header className="flex items-center justify-between pt-[calc(22px+var(--app-safe-top))] pb-5">
+        <header className="flex items-center justify-between pt-[calc(37px+var(--app-safe-top))] pb-5">
           <div>
             <p className="text-xs font-medium text-muted-foreground">
               {todayData?.date ?? "Сегодня"}

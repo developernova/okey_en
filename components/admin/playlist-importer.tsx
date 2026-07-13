@@ -74,6 +74,27 @@ type ImportResult = {
   message?: string
 }
 
+type QueuedBatch = {
+  batchId: string
+  queued: number
+}
+
+type BatchStatus = {
+  batchId: string
+  total: number
+  completed: number
+  pending: number
+  processing: number
+  ready: number
+  failed: number
+  jobs: Array<{
+    id: string
+    videoId: string
+    status: ImportResult["status"]
+    error: string | null
+  }>
+}
+
 function durationLabel(seconds: number) {
   const hours = Math.floor(seconds / 3_600)
   const minutes = Math.floor((seconds % 3_600) / 60)
@@ -129,6 +150,9 @@ export function PlaylistImporter({
   const [results, setResults] = React.useState<Record<string, ImportResult>>({})
   const [running, setRunning] = React.useState(false)
   const [completedCount, setCompletedCount] = React.useState(0)
+  const [backgroundNotice, setBackgroundNotice] = React.useState<string | null>(
+    null
+  )
 
   async function loadPlaylist(event: React.FormEvent) {
     event.preventDefault()
@@ -199,6 +223,7 @@ export function PlaylistImporter({
       .sort((left, right) => left.position - right.position)
     setRunning(true)
     setError(null)
+    setBackgroundNotice(null)
     setCompletedCount(0)
     setResults(
       Object.fromEntries(
@@ -206,17 +231,12 @@ export function PlaylistImporter({
       )
     )
 
-    for (let index = 0; index < items.length; index += 1) {
-      const item = items[index]
-      setResults((current) => ({
-        ...current,
-        [item.videoId]: { status: "processing" },
-      }))
-      try {
-        await request("/api/admin/episodes/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+    try {
+      const queued = await request<QueuedBatch>("/api/admin/imports/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: items.map((item, index) => ({
             youtubeUrl: `https://www.youtube.com/watch?v=${item.videoId}`,
             title: item.title,
             program: {
@@ -230,31 +250,50 @@ export function PlaylistImporter({
               : {}),
             transcriptLanguage,
             maxPhrases,
-          }),
-        })
-        setResults((current) => ({
-          ...current,
-          [item.videoId]: { status: "ready" },
-        }))
-      } catch (requestError) {
-        setResults((current) => ({
-          ...current,
-          [item.videoId]: {
-            status: "failed",
-            message:
-              requestError instanceof Error
-                ? requestError.message
-                : "Ошибка импорта",
-          },
-        }))
+          })),
+        }),
+      })
+      setBackgroundNotice(
+        `${queued.queued} видео поставлено в фоновую очередь. Эту страницу можно закрыть.`
+      )
+
+      while (true) {
+        const status = await request<BatchStatus>(
+          `/api/admin/imports/batch?batchId=${encodeURIComponent(queued.batchId)}`,
+          { method: "GET" }
+        )
+        setCompletedCount(status.completed)
+        setResults(
+          Object.fromEntries(
+            status.jobs.map((job) => [
+              job.videoId,
+              {
+                status: job.status,
+                ...(job.error ? { message: job.error } : {}),
+              },
+            ])
+          )
+        )
+        if (status.pending === 0 && status.processing === 0) {
+          setBackgroundNotice(
+            status.failed > 0
+              ? `Импорт завершён: ${status.ready} готово, ${status.failed} с ошибкой.`
+              : `Импорт завершён: ${status.ready} видео готово.`
+          )
+          break
+        }
+        await delay(2_500)
       }
-      setCompletedCount(index + 1)
-      if (index < items.length - 1) {
-        await delay(1_500)
-      }
+      await onComplete()
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Не удалось запустить фоновый импорт"
+      )
+    } finally {
+      setRunning(false)
     }
-    setRunning(false)
-    await onComplete()
   }
 
   const selectableItems =
@@ -301,6 +340,13 @@ export function PlaylistImporter({
         <Alert variant="destructive">
           <AlertTitle>Не удалось продолжить</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {backgroundNotice && (
+        <Alert>
+          <AlertTitle>Фоновый импорт</AlertTitle>
+          <AlertDescription>{backgroundNotice}</AlertDescription>
         </Alert>
       )}
 
@@ -433,8 +479,8 @@ export function PlaylistImporter({
             <CardHeader>
               <CardTitle>Настройки импорта</CardTitle>
               <CardDescription>
-                Строго по одному, с паузой 1,5 секунды. Ошибка одного не
-                отменяет уже готовые.
+                Сервер обработает видео строго по одному, с паузой 1,5 секунды.
+                После запуска можно уйти из админки.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -9,6 +9,7 @@ import {
 } from "@/server/content/types"
 import { normalizePhrase } from "@/server/content/text"
 import { AppError } from "@/server/shared/errors"
+import { describeOpenRouterError } from "@/server/content/openrouter-error"
 
 const openRouterResponseSchema = z.object({
   id: z.string(),
@@ -165,6 +166,7 @@ async function extractChunk(input: {
           "Content-Type": "application/json",
           "HTTP-Referer": config.OPENROUTER_APP_URL,
           "X-OpenRouter-Title": config.OPENROUTER_APP_NAME,
+          "X-OpenRouter-Metadata": "enabled",
         },
         body: requestBody,
         signal: AbortSignal.timeout(180_000),
@@ -174,7 +176,7 @@ async function extractChunk(input: {
       const details = await response.text()
       if (response.status < 500 && response.status !== 429) {
         throw new AppError(
-          `OpenRouter request failed with ${response.status}`,
+          describeOpenRouterError(response.status, details),
           502,
           "OPENROUTER_ERROR",
           details

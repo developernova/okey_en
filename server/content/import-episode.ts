@@ -21,21 +21,36 @@ import type { ImportEpisodeInput } from "@/server/content/types"
 import { getYoutubeTranscript } from "@/server/content/youtube-transcript"
 import { AppError, toErrorMessage } from "@/server/shared/errors"
 
-const PROMPT_VERSION = "episode-phrases-v2-auto-cefr"
+export const IMPORT_PROMPT_VERSION = "episode-phrases-v2-auto-cefr"
 
-export async function importEpisode(input: ImportEpisodeInput) {
+export async function importEpisode(
+  input: ImportEpisodeInput,
+  options: { existingJobId?: string } = {}
+) {
   const db = getDb()
-  const youtubeIdForJob = input.youtubeUrl.slice(0, 200)
-  const [job] = await db
-    .insert(ingestionJobs)
-    .values({
-      youtubeId: youtubeIdForJob,
-      status: "processing",
-      model: env().OPENROUTER_MODEL,
-      promptVersion: PROMPT_VERSION,
-      startedAt: new Date(),
-    })
-    .returning({ id: ingestionJobs.id })
+  let jobId = options.existingJobId
+  let jobMetadata: Record<string, unknown> = {}
+  if (!jobId) {
+    const youtubeIdForJob = input.youtubeUrl.slice(0, 200)
+    const [job] = await db
+      .insert(ingestionJobs)
+      .values({
+        youtubeId: youtubeIdForJob,
+        status: "processing",
+        model: env().OPENROUTER_MODEL,
+        promptVersion: IMPORT_PROMPT_VERSION,
+        startedAt: new Date(),
+      })
+      .returning({ id: ingestionJobs.id })
+    jobId = job.id
+  } else {
+    const [existingJob] = await db
+      .select({ metadata: ingestionJobs.metadata })
+      .from(ingestionJobs)
+      .where(eq(ingestionJobs.id, jobId))
+      .limit(1)
+    jobMetadata = existingJob?.metadata ?? {}
+  }
 
   try {
     const { youtubeId, segments } = await getYoutubeTranscript(
@@ -214,11 +229,11 @@ export async function importEpisode(input: ImportEpisodeInput) {
         youtubeId: result.youtubeId,
         status: "ready",
         finishedAt: new Date(),
-        metadata: result,
+        metadata: { ...jobMetadata, ...result },
       })
-      .where(eq(ingestionJobs.id, job.id))
+      .where(eq(ingestionJobs.id, jobId))
 
-    return { jobId: job.id, ...result }
+    return { jobId, ...result }
   } catch (error) {
     await db
       .update(ingestionJobs)
@@ -228,10 +243,7 @@ export async function importEpisode(input: ImportEpisodeInput) {
         finishedAt: new Date(),
       })
       .where(
-        and(
-          eq(ingestionJobs.id, job.id),
-          eq(ingestionJobs.status, "processing")
-        )
+        and(eq(ingestionJobs.id, jobId), eq(ingestionJobs.status, "processing"))
       )
     throw error
   }
