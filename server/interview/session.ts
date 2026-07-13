@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { z } from "zod"
 
 import { env } from "@/server/config/env"
+import { interviewQuestionSchema } from "@/server/interview/question"
 import { AppError } from "@/server/shared/errors"
 
 const conversationMessageSchema = z.object({
@@ -11,12 +12,12 @@ const conversationMessageSchema = z.object({
 })
 
 export const interviewStateSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   userId: z.uuid(),
   episodeId: z.uuid(),
   requestDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   answersCompleted: z.number().int().min(0).max(3),
-  questions: z.array(z.string().min(1).max(300)).length(3),
+  questions: z.array(interviewQuestionSchema).length(3),
   conversation: z.array(conversationMessageSchema).max(7),
   issuedAt: z.number().int().positive(),
 })
@@ -41,18 +42,33 @@ export function signInterviewState(
 export function verifyInterviewState(token: string, secret = defaultSecret()) {
   const [payload, signature, extra] = token.split(".")
   if (!payload || !signature || extra) {
-    throw new AppError("Invalid interview session", 400, "INVALID_INTERVIEW_SESSION")
+    throw new AppError(
+      "Invalid interview session",
+      400,
+      "INVALID_INTERVIEW_SESSION"
+    )
   }
   const expected = createHmac("sha256", secret).update(payload).digest()
   const received = Buffer.from(signature, "base64url")
-  if (received.length !== expected.length || !timingSafeEqual(received, expected)) {
-    throw new AppError("Invalid interview session", 400, "INVALID_INTERVIEW_SESSION")
+  if (
+    received.length !== expected.length ||
+    !timingSafeEqual(received, expected)
+  ) {
+    throw new AppError(
+      "Invalid interview session",
+      400,
+      "INVALID_INTERVIEW_SESSION"
+    )
   }
   try {
     return interviewStateSchema.parse(
       JSON.parse(Buffer.from(payload, "base64url").toString("utf8"))
     )
   } catch {
-    throw new AppError("Invalid interview session", 400, "INVALID_INTERVIEW_SESSION")
+    throw new AppError(
+      "Invalid interview session",
+      400,
+      "INVALID_INTERVIEW_SESSION"
+    )
   }
 }

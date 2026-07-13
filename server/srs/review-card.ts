@@ -1,7 +1,7 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 
 import { getDb } from "@/db"
-import { reviewLogs, userCards, users } from "@/db/schema"
+import { phrases, reviewLogs, userCards, userLexemes, users } from "@/db/schema"
 import { AppError } from "@/server/shared/errors"
 import { reviewFsrsCard, type ReviewRating } from "@/server/srs/fsrs"
 
@@ -46,8 +46,21 @@ export async function reviewCard(input: {
     }
 
     const [stored] = await tx
-      .select()
+      .select({
+        id: userCards.id,
+        due: userCards.due,
+        stability: userCards.stability,
+        difficulty: userCards.difficulty,
+        scheduledDays: userCards.scheduledDays,
+        learningSteps: userCards.learningSteps,
+        reps: userCards.reps,
+        lapses: userCards.lapses,
+        state: userCards.state,
+        lastReview: userCards.lastReview,
+        lemma: phrases.lemma,
+      })
       .from(userCards)
+      .innerJoin(phrases, eq(phrases.id, userCards.phraseId))
       .where(
         and(eq(userCards.id, input.cardId), eq(userCards.userId, input.userId))
       )
@@ -89,6 +102,28 @@ export async function reviewCard(input: {
       difficultyAfter: result.card.difficulty,
       scheduledDaysAfter: result.card.scheduled_days,
     })
+
+    const lexicalConfidence =
+      input.rating === "good" ? 0.9 : input.rating === "hard" ? 0.65 : 0.2
+    await tx
+      .insert(userLexemes)
+      .values({
+        userId: input.userId,
+        lemma: stored.lemma,
+        source: "review",
+        confidence: lexicalConfidence,
+        learnedAt: input.rating === "good" ? now : null,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [userLexemes.userId, userLexemes.lemma],
+        set: {
+          source: "review",
+          confidence: sql`excluded.confidence`,
+          learnedAt: sql`excluded.learned_at`,
+          updatedAt: now,
+        },
+      })
 
     await tx
       .update(users)

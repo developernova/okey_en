@@ -7,19 +7,28 @@ import {
   buildQuestionPlanMessages,
   type InterviewPromptMessage,
 } from "@/server/interview/prompt"
+import { interviewQuestionSchema } from "@/server/interview/question"
+import {
+  describeOpenRouterError,
+  isOpenRouterInvalidArgument,
+} from "@/server/content/openrouter-error"
 import { AppError } from "@/server/shared/errors"
 
-const questionPlanSchema = z
-  .object({ questions: z.array(z.string().min(1).max(300)).length(3) })
-  .refine(
-    ({ questions }) =>
-      new Set(questions.map((question) => question.trim().toLowerCase()))
-        .size === 3,
-    "Questions must be distinct"
-  )
+const questionPlanSchema = z.preprocess(
+  (value) => (Array.isArray(value) ? { questions: value } : value),
+  z
+    .object({ questions: z.array(interviewQuestionSchema).length(3) })
+    .refine(
+      ({ questions }) =>
+        new Set(questions.map((question) => question.text.trim().toLowerCase()))
+          .size === 3,
+      "Questions must be distinct"
+    )
+)
 
 const languageCorrectionSchema = z.object({
   correction: z.string().min(1).max(500).nullable(),
+  unknownWord: z.string().min(1).max(60).nullable(),
 })
 
 const factualReactionSchema = z.object({
@@ -43,7 +52,33 @@ const questionPlanJsonSchema = {
       type: "array",
       minItems: 3,
       maxItems: 3,
-      items: { type: "string", minLength: 1, maxLength: 300 },
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          text: { type: "string", minLength: 1, maxLength: 300 },
+          glossary: {
+            type: "array",
+            minItems: 1,
+            maxItems: 40,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                word: { type: "string", minLength: 1, maxLength: 60 },
+                lemma: { type: "string", minLength: 1, maxLength: 60 },
+                translationRu: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 160,
+                },
+              },
+              required: ["word", "lemma", "translationRu"],
+            },
+          },
+        },
+        required: ["text", "glossary"],
+      },
     },
   },
   required: ["questions"],
@@ -59,8 +94,14 @@ const languageCorrectionJsonSchema = {
         { type: "null" },
       ],
     },
+    unknownWord: {
+      anyOf: [
+        { type: "string", minLength: 1, maxLength: 60 },
+        { type: "null" },
+      ],
+    },
   },
-  required: ["correction"],
+  required: ["correction", "unknownWord"],
 } as const
 
 const factualReactionJsonSchema = {
@@ -86,24 +127,28 @@ async function requestStructured<T>(input: {
   maxTokens: number
 }) {
   const config = env()
-  const body = JSON.stringify({
-    model: config.OPENROUTER_INTERVIEW_MODEL,
-    session_id: `okey-english-episode-${input.episodeId}-${input.schemaName}`,
-    temperature: 0.25,
-    max_tokens: input.maxTokens,
-    messages: input.messages,
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: input.schemaName,
-        strict: true,
-        schema: input.jsonSchema,
-      },
-    },
-    provider: { require_parameters: true },
-  })
+  const body = (strictSchema: boolean) =>
+    JSON.stringify({
+      model: config.OPENROUTER_INTERVIEW_MODEL,
+      session_id: `okey-english-episode-${input.episodeId}-${input.schemaName}`,
+      temperature: 0.25,
+      max_tokens: input.maxTokens,
+      messages: input.messages,
+      response_format: strictSchema
+        ? {
+            type: "json_schema",
+            json_schema: {
+              name: input.schemaName,
+              strict: true,
+              schema: input.jsonSchema,
+            },
+          }
+        : { type: "json_object" },
+      provider: { require_parameters: true },
+    })
 
   let lastError: unknown
+  let strictSchema = true
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const response = await fetch(
@@ -116,7 +161,7 @@ async function requestStructured<T>(input: {
             "HTTP-Referer": config.OPENROUTER_APP_URL,
             "X-OpenRouter-Title": config.OPENROUTER_APP_NAME,
           },
-          body,
+          body: body(strictSchema),
           signal: AbortSignal.timeout(60_000),
         }
       )
@@ -141,9 +186,19 @@ async function requestStructured<T>(input: {
         }
       } else {
         const details = await response.text()
+        if (
+          strictSchema &&
+          isOpenRouterInvalidArgument(response.status, details)
+        ) {
+          strictSchema = false
+          lastError = new Error(
+            "OpenRouter provider rejected the strict JSON schema; retrying in JSON mode"
+          )
+          continue
+        }
         if (response.status < 500 && response.status !== 429) {
           throw new AppError(
-            `OpenRouter request failed with ${response.status}`,
+            describeOpenRouterError(response.status, details),
             502,
             "OPENROUTER_INTERVIEW_ERROR",
             details
@@ -168,14 +223,19 @@ async function requestStructured<T>(input: {
 export function generateInterviewQuestions(input: {
   episodeId: string
   transcript: string
+  learnerLevel: string
+  knownVocabulary: string[]
 }) {
   return requestStructured({
     episodeId: input.episodeId,
-    messages: buildQuestionPlanMessages(input.transcript),
+    messages: buildQuestionPlanMessages(input.transcript, {
+      level: input.learnerLevel,
+      knownVocabulary: input.knownVocabulary,
+    }),
     schemaName: "video_interview_questions",
     jsonSchema: questionPlanJsonSchema,
     responseSchema: questionPlanSchema,
-    maxTokens: 320,
+    maxTokens: 1_400,
   })
 }
 
@@ -205,6 +265,7 @@ export function generateInterviewAnalysis(input: {
 
   return Promise.all([correction, reaction]).then(([language, factual]) => ({
     correction: language.correction,
+    unknownWord: language.unknownWord,
     reaction: factual.reaction,
     closing:
       input.answersCompleted === 3

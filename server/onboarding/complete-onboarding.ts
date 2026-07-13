@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import { getDb } from "@/db"
 import {
   episodes,
+  episodeLexemes,
   lexemes,
   programs,
   userLexemes,
@@ -64,11 +65,44 @@ export async function completeOnboarding(
   const firstEpisodeByProgram = [
     ...new Map(readyEpisodes.map((item) => [item.programId, item])).values(),
   ]
-  const recommended = firstEpisodeByProgram.sort(
-    (a, b) =>
+  const firstEpisodeIds = firstEpisodeByProgram.map((item) => item.episodeId)
+  const episodeVocabulary =
+    firstEpisodeIds.length > 0
+      ? await db
+          .select({
+            episodeId: episodeLexemes.episodeId,
+            lemma: episodeLexemes.lemma,
+            frequency: episodeLexemes.frequency,
+          })
+          .from(episodeLexemes)
+          .where(inArray(episodeLexemes.episodeId, firstEpisodeIds))
+      : []
+  const knownVocabulary = new Set(vocabulary.map((item) => item.lemma))
+  const coverageByEpisode = new Map<string, { known: number; total: number }>()
+  for (const item of episodeVocabulary) {
+    const coverage = coverageByEpisode.get(item.episodeId) ?? {
+      known: 0,
+      total: 0,
+    }
+    coverage.total += item.frequency
+    if (knownVocabulary.has(item.lemma)) coverage.known += item.frequency
+    coverageByEpisode.set(item.episodeId, coverage)
+  }
+  const coverage = (episodeId: string) => {
+    const value = coverageByEpisode.get(episodeId)
+    return !value?.total ? 0 : Math.round((value.known / value.total) * 100)
+  }
+  const recommended = firstEpisodeByProgram.sort((a, b) => {
+    const byLevel =
       levelDistance(level, a.levelMin, a.levelMax) -
       levelDistance(level, b.levelMin, b.levelMax)
-  )[0]
+    if (byLevel !== 0) return byLevel
+    const byCoverage =
+      Math.abs(80 - coverage(a.episodeId)) -
+      Math.abs(80 - coverage(b.episodeId))
+    if (byCoverage !== 0) return byCoverage
+    return a.programTitle.localeCompare(b.programTitle, "en")
+  })[0]
 
   await db.transaction(async (tx) => {
     await tx
@@ -93,7 +127,7 @@ export async function completeOnboarding(
         .onConflictDoUpdate({
           target: [userProgramProgress.userId, userProgramProgress.programId],
           set: {
-            currentEpisodeId: recommended.episodeId,
+            currentEpisodeId: sql`coalesce(${userProgramProgress.currentEpisodeId}, excluded.current_episode_id)`,
             isActive: true,
             updatedAt: new Date(),
           },
@@ -128,7 +162,11 @@ export async function completeOnboarding(
     level,
     knownLexemes: vocabulary.length,
     program: recommended
-      ? { id: recommended.programId, title: recommended.programTitle }
+      ? {
+          id: recommended.programId,
+          title: recommended.programTitle,
+          coverage: coverage(recommended.episodeId),
+        }
       : null,
   }
 }

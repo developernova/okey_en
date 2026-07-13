@@ -1,35 +1,30 @@
 import { and, asc, eq } from "drizzle-orm"
 
 import { getDb } from "@/db"
-import { episodes, programs, userProgramProgress } from "@/db/schema"
+import {
+  episodes,
+  pendingProgramSwitches,
+  programs,
+  userProgramProgress,
+  users,
+} from "@/db/schema"
+import { CEFR_LEVELS, type CefrLevel } from "@/server/content/cefr"
 import { calculateComprehension } from "@/server/progress/comprehension"
 import { AppError } from "@/server/shared/errors"
 
 const unlockCoverage = 70
-const catalog = [
-  {
-    slug: "easy-english",
-    title: "Easy English",
-    description: "Живые диалоги на улицах",
-    level: "A2–B1",
-  },
-  {
-    slug: "ted-ed",
-    title: "TED-Ed",
-    description: "Короткие истории и идеи",
-    level: "B1–B2",
-  },
-  {
-    slug: "vox",
-    title: "Vox",
-    description: "Мир, культура и технологии",
-    level: "B2",
-  },
-] as const
+
+function includesLevel(level: string | null, min: string, max: string) {
+  if (!level) return true
+  const value = CEFR_LEVELS.indexOf(level as CefrLevel)
+  const minimum = CEFR_LEVELS.indexOf(min as CefrLevel)
+  const maximum = CEFR_LEVELS.indexOf(max as CefrLevel)
+  if (value < 0 || minimum < 0 || maximum < 0) return true
+  return value >= minimum && value <= maximum
+}
 
 async function getAvailablePrograms() {
-  const db = getDb()
-  const rows = await db
+  const rows = await getDb()
     .select({
       id: programs.id,
       slug: programs.slug,
@@ -41,22 +36,23 @@ async function getAvailablePrograms() {
       sequenceNumber: episodes.sequenceNumber,
     })
     .from(programs)
-    .innerJoin(episodes, eq(episodes.programId, programs.id))
-    .where(
+    .leftJoin(
+      episodes,
       and(
-        eq(programs.isActive, true),
+        eq(episodes.programId, programs.id),
         eq(episodes.ingestionStatus, "ready"),
         eq(episodes.isActive, true)
       )
     )
-    .orderBy(asc(episodes.sequenceNumber))
+    .where(eq(programs.isActive, true))
+    .orderBy(asc(programs.title), asc(episodes.sequenceNumber))
 
   return [...new Map(rows.map((row) => [row.id, row])).values()]
 }
 
 export async function listProgramSettings(userId: string) {
   const db = getDb()
-  const [available, activeRows] = await Promise.all([
+  const [available, activeRows, pendingRows, userRows] = await Promise.all([
     getAvailablePrograms(),
     db
       .select({ programId: userProgramProgress.programId })
@@ -67,51 +63,40 @@ export async function listProgramSettings(userId: string) {
           eq(userProgramProgress.isActive, true)
         )
       ),
+    db
+      .select({ programId: pendingProgramSwitches.programId })
+      .from(pendingProgramSwitches)
+      .where(eq(pendingProgramSwitches.userId, userId))
+      .limit(1),
+    db
+      .select({ levelEstimate: users.levelEstimate })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1),
   ])
   const activeProgramId = activeRows[0]?.programId
-
-  const measured = await Promise.all(
-    available.map(async (program) => {
-      const comprehension = await calculateComprehension({
-        userId,
-        episodeId: program.episodeId,
-      })
-      return {
-        ...program,
-        coverage: comprehension.percentage,
-      }
-    })
+  const pendingProgramId = pendingRows[0]?.programId
+  const learnerLevel = userRows[0]?.levelEstimate ?? null
+  const visible = available.filter(
+    (program) =>
+      program.id === activeProgramId ||
+      program.id === pendingProgramId ||
+      includesLevel(learnerLevel, program.levelMin, program.levelMax)
   )
 
-  const measuredBySlug = new Map(measured.map((item) => [item.slug, item]))
-  const defaults = catalog.map((entry) => {
-    const program = measuredBySlug.get(entry.slug)
-    const isActive = program?.id === activeProgramId
-    const isUnlocked = Boolean(
-      program && (isActive || program.coverage >= unlockCoverage)
-    )
-    return {
-      id: program?.id ?? null,
-      slug: entry.slug,
-      title: program?.title ?? entry.title,
-      description: program?.description ?? entry.description,
-      level: entry.level,
-      coverage: program?.coverage ?? null,
-      isActive,
-      isUnlocked,
-      unlockCoverage,
-      hasContent: Boolean(program),
-    }
-  })
-
-  const defaultSlugs = new Set(catalog.map((entry) => entry.slug))
-  const custom = measured
-    .filter(
-      (program) =>
-        !defaultSlugs.has(program.slug as (typeof catalog)[number]["slug"])
-    )
-    .map((program) => {
+  return Promise.all(
+    visible.map(async (program) => {
+      const coverage = program.episodeId
+        ? (
+            await calculateComprehension({
+              userId,
+              episodeId: program.episodeId,
+            })
+          ).percentage
+        : null
       const isActive = program.id === activeProgramId
+      const isPending = program.id === pendingProgramId
+      const hasContent = Boolean(program.episodeId)
       return {
         id: program.id,
         slug: program.slug,
@@ -121,30 +106,65 @@ export async function listProgramSettings(userId: string) {
           program.levelMin === program.levelMax
             ? program.levelMin
             : `${program.levelMin}–${program.levelMax}`,
-        coverage: program.coverage,
+        coverage,
         isActive,
-        isUnlocked: isActive || program.coverage >= unlockCoverage,
+        isPending,
+        isUnlocked:
+          hasContent &&
+          (isActive || isPending || (coverage ?? 0) >= unlockCoverage),
         unlockCoverage,
-        hasContent: true,
+        hasContent,
       }
     })
-
-  return [...defaults, ...custom]
+  )
 }
 
 export async function selectProgram(userId: string, programId: string) {
   const db = getDb()
-  const available = await getAvailablePrograms()
+  const [available, activeRows, userRows] = await Promise.all([
+    getAvailablePrograms(),
+    db
+      .select({ programId: userProgramProgress.programId })
+      .from(userProgramProgress)
+      .where(
+        and(
+          eq(userProgramProgress.userId, userId),
+          eq(userProgramProgress.isActive, true)
+        )
+      )
+      .limit(1),
+    db
+      .select({ levelEstimate: users.levelEstimate })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1),
+  ])
   const target = available.find((program) => program.id === programId)
-  if (!target) {
+  if (!target?.episodeId) {
     throw new AppError("Program is not available", 404, "PROGRAM_NOT_AVAILABLE")
+  }
+  if (
+    !includesLevel(
+      userRows[0]?.levelEstimate ?? null,
+      target.levelMin,
+      target.levelMax
+    )
+  ) {
+    throw new AppError(
+      "Program does not match the learner level",
+      409,
+      "PROGRAM_LEVEL_MISMATCH"
+    )
   }
 
   const comprehension = await calculateComprehension({
     userId,
     episodeId: target.episodeId,
   })
-  if (comprehension.percentage < unlockCoverage) {
+  if (
+    activeRows[0]?.programId !== target.id &&
+    comprehension.percentage < unlockCoverage
+  ) {
     throw new AppError(
       `Program unlocks at ${unlockCoverage}% coverage`,
       409,
@@ -152,28 +172,28 @@ export async function selectProgram(userId: string, programId: string) {
     )
   }
 
-  await db.transaction(async (tx) => {
-    await tx
-      .update(userProgramProgress)
-      .set({ isActive: false, updatedAt: new Date() })
-      .where(eq(userProgramProgress.userId, userId))
-    await tx
-      .insert(userProgramProgress)
-      .values({
-        userId,
-        programId: target.id,
-        currentEpisodeId: target.episodeId,
-        isActive: true,
-      })
-      .onConflictDoUpdate({
-        target: [userProgramProgress.userId, userProgramProgress.programId],
-        set: {
-          currentEpisodeId: target.episodeId,
-          isActive: true,
-          updatedAt: new Date(),
-        },
-      })
-  })
+  if (activeRows[0]?.programId === target.id) {
+    await db
+      .delete(pendingProgramSwitches)
+      .where(eq(pendingProgramSwitches.userId, userId))
+    return {
+      programId: target.id,
+      coverage: comprehension.percentage,
+      effective: "current" as const,
+    }
+  }
 
-  return { programId: target.id, coverage: comprehension.percentage }
+  await db
+    .insert(pendingProgramSwitches)
+    .values({ userId, programId: target.id, requestedAt: new Date() })
+    .onConflictDoUpdate({
+      target: pendingProgramSwitches.userId,
+      set: { programId: target.id, requestedAt: new Date() },
+    })
+
+  return {
+    programId: target.id,
+    coverage: comprehension.percentage,
+    effective: "next_day" as const,
+  }
 }

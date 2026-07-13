@@ -141,6 +141,18 @@ export const userProgramProgress = pgTable(
   ]
 )
 
+export const pendingProgramSwitches = pgTable("pending_program_switches", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  programId: uuid("program_id")
+    .notNull()
+    .references(() => programs.id, { onDelete: "cascade" }),
+  requestedAt: timestamp("requested_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})
+
 export const transcriptSegments = pgTable(
   "transcript_segments",
   {
@@ -260,6 +272,7 @@ export const userCards = pgTable(
     state: integer("state").notNull().default(0),
     lastReview: timestamp("last_review", { withTimezone: true }),
     isSuspended: boolean("is_suspended").notNull().default(false),
+    isPersonal: boolean("is_personal").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -98,6 +98,7 @@ type ProgramSettingDto = {
   level: string
   coverage: number | null
   isActive: boolean
+  isPending: boolean
   isUnlocked: boolean
   unlockCoverage: number
   hasContent: boolean
@@ -109,6 +110,8 @@ type InterviewMessage = {
   text: string
   delivery?: "sending" | "failed"
   error?: string
+  questionWords?: string[]
+  helpToken?: string
 }
 
 type InterviewTurnDto = {
@@ -118,7 +121,20 @@ type InterviewTurnDto = {
   completed: boolean
   answersCompleted: number
   questionNumber: number | null
+  questionWords: string[]
   sessionToken: string | null
+  queuedWord?: {
+    word: string
+    translationRu: string
+    queued: true
+  } | null
+}
+
+type InterviewWordHelpDto = {
+  word: string
+  lemma: string
+  translationRu: string
+  queued: true
 }
 
 type VoicePhase = "idle" | "recording" | "transcribing"
@@ -362,6 +378,26 @@ async function requestInterviewTranscription(input: {
   return text
 }
 
+async function requestInterviewWordHelp(input: {
+  episodeId: string
+  sessionToken: string
+  word: string
+}) {
+  const response = await telegramFetch("/api/interview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "word_help", ...input }),
+  })
+  const payload = (await response.json()) as {
+    data?: InterviewWordHelpDto
+    error?: { message?: string }
+  }
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.error?.message ?? "Не удалось перевести слово")
+  }
+  return payload.data
+}
+
 function preferredRecordingMimeType() {
   if (typeof MediaRecorder === "undefined") return ""
   const candidates = [
@@ -377,6 +413,79 @@ function recordingFileName(mimeType: string) {
   if (mimeType.includes("mp4")) return "answer.mp4"
   if (mimeType.includes("ogg")) return "answer.ogg"
   return "answer.webm"
+}
+
+function normalizeTappableWord(value: string) {
+  return value.toLocaleLowerCase("en").replace(/[’]/g, "'")
+}
+
+function TappableQuestion({
+  text,
+  words,
+  onHelp,
+}: {
+  text: string
+  words: string[]
+  onHelp: (word: string) => Promise<InterviewWordHelpDto>
+}) {
+  const [loadingWord, setLoadingWord] = React.useState<string | null>(null)
+  const [help, setHelp] = React.useState<InterviewWordHelpDto | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const tappable = new Set(words.map(normalizeTappableWord))
+  const parts = text.split(/([A-Za-z]+(?:['’-][A-Za-z]+)*)/g)
+
+  async function openWord(word: string) {
+    if (loadingWord) return
+    setLoadingWord(word)
+    setError(null)
+    try {
+      const result = await onHelp(word)
+      setHelp(result)
+      getTelegramWebApp()?.HapticFeedback?.impactOccurred("light")
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Не удалось перевести слово"
+      )
+    } finally {
+      setLoadingWord(null)
+    }
+  }
+
+  return (
+    <div>
+      <span>
+        {parts.map((part, index) =>
+          tappable.has(normalizeTappableWord(part)) ? (
+            <button
+              key={`${part}-${index}`}
+              type="button"
+              disabled={Boolean(loadingWord)}
+              onClick={() => void openWord(part)}
+              className="font-inherit inline cursor-pointer border-0 bg-transparent p-0 text-inherit underline decoration-current/45 decoration-dotted underline-offset-4 disabled:opacity-60"
+            >
+              {part}
+            </button>
+          ) : (
+            <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>
+          )
+        )}
+      </span>
+      {loadingWord && (
+        <p className="mt-2 text-xs text-muted-foreground">Переводим…</p>
+      )}
+      {help && !loadingWord && (
+        <p className="mt-2 border-t border-foreground/10 pt-2 text-xs text-muted-foreground">
+          <span className="font-semibold text-foreground">{help.word}</span> —{" "}
+          {help.translationRu} · добавлено в повторение
+        </p>
+      )}
+      {error && !loadingWord && (
+        <p className="mt-2 text-xs text-destructive">{error}</p>
+      )}
+    </div>
+  )
 }
 
 function subscribeToVoiceSupport() {
@@ -489,6 +598,9 @@ export function WordflowApp() {
     number | "unknown" | null
   >(null)
   const [reminder, setReminder] = React.useState("19:00")
+  const [placementProgram, setPlacementProgram] = React.useState<string | null>(
+    null
+  )
   const [reminderEnabled, setReminderEnabled] = React.useState(true)
   const [reminderSaving, setReminderSaving] = React.useState(false)
   const [reminderError, setReminderError] = React.useState<string | null>(null)
@@ -806,9 +918,18 @@ export function WordflowApp() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ level: placementLevel }),
-        }).catch((error) =>
-          console.error("Failed to save placement level", error)
-        )
+        })
+          .then(async (response) => {
+            const payload = (await response.json()) as {
+              data?: { program?: { title?: string } | null }
+            }
+            if (response.ok) {
+              setPlacementProgram(payload.data?.program?.title ?? null)
+            }
+          })
+          .catch((error) =>
+            console.error("Failed to save placement level", error)
+          )
         window.localStorage.setItem("okey-english:onboarding-complete", "1")
         setTelegramCloudFlag("onboarding_complete", "1")
         setScreen("result")
@@ -860,6 +981,7 @@ export function WordflowApp() {
   }
 
   function startTest() {
+    setPlacementProgram(null)
     setQuestion(4)
     setQuestionNumber(0)
     setAbility(1)
@@ -880,7 +1002,13 @@ export function WordflowApp() {
       const turn = await requestInterview({ action: "start", episodeId })
       if (run !== interviewRun.current) return
       setInterviewMessages([
-        { id: crypto.randomUUID(), role: "assistant", text: turn.message },
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: turn.message,
+          questionWords: turn.questionWords,
+          helpToken: turn.sessionToken ?? undefined,
+        },
       ])
       setInterviewToken(turn.sessionToken)
       setInterviewAnswers(0)
@@ -967,7 +1095,13 @@ export function WordflowApp() {
               },
             ]
           : []),
-        { id: crypto.randomUUID(), role: "assistant", text: turn.message },
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: turn.message,
+          questionWords: turn.questionWords,
+          helpToken: turn.sessionToken ?? undefined,
+        },
       ])
       setInterviewToken(turn.sessionToken)
       setInterviewAnswers(turn.answersCompleted)
@@ -1181,7 +1315,7 @@ export function WordflowApp() {
           payload.error?.message ?? "Не удалось сменить программу"
         )
       }
-      openToday()
+      await openSettings()
     } catch (error) {
       setProgramError(
         error instanceof Error ? error.message : "Не удалось сменить программу"
@@ -1344,7 +1478,9 @@ export function WordflowApp() {
                 <div>
                   <p className="text-sm font-medium">Первая рекомендация</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Easy English · живые диалоги · подходит по сложности
+                    {placementProgram
+                      ? `${placementProgram} · подходит по уровню и покрытию`
+                      : "Подбираем по уровню и покрытию…"}
                   </p>
                 </div>
               </div>
@@ -1459,15 +1595,18 @@ export function WordflowApp() {
               Что смотреть дальше
             </h1>
             <p className="mt-3 text-sm leading-5 text-muted-foreground">
-              Сложность важнее тематики. Новая программа откроется, когда её
-              субтитры станут достаточно понятными.
+              Здесь только программы твоего уровня. Переключение начнёт
+              действовать завтра — сегодняшний план не изменится.
             </p>
           </div>
 
           <div className="mt-7 space-y-3">
             {programSettings?.map((program, index) => {
               const canSelect =
-                Boolean(program.id) && program.isUnlocked && !program.isActive
+                Boolean(program.id) &&
+                program.isUnlocked &&
+                !program.isActive &&
+                !program.isPending
               return (
                 <button
                   key={program.slug}
@@ -1479,6 +1618,8 @@ export function WordflowApp() {
                     "flex w-full items-center gap-4 rounded-[22px] border bg-card p-3 text-left",
                     program.isActive &&
                       "border-foreground ring-1 ring-foreground",
+                    program.isPending &&
+                      "border-[#6f9474] ring-1 ring-[#6f9474]",
                     !program.isUnlocked && "opacity-65"
                   )}
                 >
@@ -1509,13 +1650,15 @@ export function WordflowApp() {
                       {program.description}
                     </p>
                     <p className="mt-2 text-[11px] font-medium text-muted-foreground">
-                      {program.isActive
-                        ? `Текущая программа · ${program.coverage ?? "—"}% знакомо`
-                        : program.isUnlocked
-                          ? `${program.coverage}% знакомо · можно переключиться`
-                          : program.hasContent
-                            ? `${program.coverage}% знакомо · откроется при ${program.unlockCoverage}% покрытия`
-                            : `Откроется при ~${program.unlockCoverage}% покрытия · выпуски готовятся`}
+                      {program.isPending
+                        ? `Выбрана на завтра · ${program.coverage ?? "—"}% знакомо`
+                        : program.isActive
+                          ? `Текущая программа · ${program.coverage ?? "—"}% знакомо`
+                          : program.isUnlocked
+                            ? `${program.coverage}% знакомо · можно переключиться`
+                            : program.hasContent
+                              ? `${program.coverage}% знакомо · откроется при ${program.unlockCoverage}% покрытия`
+                              : `Откроется при ~${program.unlockCoverage}% покрытия · выпуски готовятся`}
                     </p>
                   </div>
                 </button>
@@ -1598,7 +1741,7 @@ export function WordflowApp() {
           <div className="flex-1 overflow-y-auto px-5 py-4" aria-live="polite">
             <div className="mb-5 rounded-2xl bg-muted/70 px-4 py-3 text-xs leading-5 text-muted-foreground">
               Отвечай по-английски. Исправляем только ошибки, которые мешают
-              понять смысл.
+              понять смысл. Не знаешь слово в вопросе — нажми на него.
             </div>
 
             <div className="space-y-3">
@@ -1632,7 +1775,24 @@ export function WordflowApp() {
                         message.delivery === "sending" && "opacity-75"
                       )}
                     >
-                      {message.text}
+                      {message.role === "assistant" &&
+                      message.questionWords?.length &&
+                      message.helpToken &&
+                      todayData?.episode.id ? (
+                        <TappableQuestion
+                          text={message.text}
+                          words={message.questionWords}
+                          onHelp={(word) =>
+                            requestInterviewWordHelp({
+                              episodeId: todayData.episode.id,
+                              sessionToken: message.helpToken!,
+                              word,
+                            })
+                          }
+                        />
+                      ) : (
+                        message.text
+                      )}
                     </div>
                     {message.role === "user" &&
                       message.delivery === "sending" && (
@@ -2042,7 +2202,7 @@ export function WordflowApp() {
   return (
     <PhoneShell>
       <div className="min-h-dvh px-5 pb-[calc(24px+var(--app-safe-bottom))]">
-        <header className="flex items-center justify-between pt-[calc(37px+var(--app-safe-top))] pb-5">
+        <header className="flex items-center justify-between pt-[calc(42px+var(--app-safe-top))] pb-5">
           <div>
             <p className="text-xs font-medium text-muted-foreground">
               {todayData?.date ?? "Сегодня"}

@@ -55,10 +55,24 @@ describe("interview prompts", () => {
   })
 
   it("plans exactly three questions from the transcript", () => {
-    const messages = buildQuestionPlanMessages("The family made dinner.")
+    const messages = buildQuestionPlanMessages("The family made dinner.", {
+      level: "A2",
+      knownVocabulary: ["family", "make", "dinner"],
+    })
     expect(messages[1]?.content).toContain("The family made dinner")
+    expect(messages[1]?.content).toContain("family, make, dinner")
     expect(messages.at(-1)?.content).toContain(
       "Plan three distinct content questions"
     )
+    expect(messages[0]?.content).toContain("must not test unseen vocabulary")
+    expect(messages[0]?.content).toContain("every English word")
+  })
+
+  it("detects only explicit unknown-word statements", () => {
+    expect(languageCorrectionSystemPrompt).toContain("unknownWord")
+    expect(languageCorrectionSystemPrompt).toContain(
+      "directly says they do not know"
+    )
+    expect(languageCorrectionSystemPrompt).toContain("I don't know this word")
   })
 })

@@ -5,6 +5,7 @@ import {
   dailyPlanItems,
   dailyPlans,
   episodes,
+  pendingProgramSwitches,
   programs,
   userProgramProgress,
   users,
@@ -72,6 +73,72 @@ export async function getOrCreateDailyPlan(userId: string, now = new Date()) {
         completedItems: items
           .filter((item) => item.completedAt !== null)
           .map((item) => item.type),
+      }
+    }
+
+    const [pendingSwitch] = await tx
+      .select({ programId: pendingProgramSwitches.programId })
+      .from(pendingProgramSwitches)
+      .where(eq(pendingProgramSwitches.userId, userId))
+      .limit(1)
+
+    if (pendingSwitch) {
+      let [targetEpisode] = await tx
+        .select({ episodeId: episodes.id })
+        .from(userProgramProgress)
+        .innerJoin(
+          episodes,
+          eq(episodes.id, userProgramProgress.currentEpisodeId)
+        )
+        .where(
+          and(
+            eq(userProgramProgress.userId, userId),
+            eq(userProgramProgress.programId, pendingSwitch.programId),
+            eq(episodes.ingestionStatus, "ready"),
+            eq(episodes.isActive, true)
+          )
+        )
+        .limit(1)
+
+      if (!targetEpisode) {
+        ;[targetEpisode] = await tx
+          .select({ episodeId: episodes.id })
+          .from(episodes)
+          .where(
+            and(
+              eq(episodes.programId, pendingSwitch.programId),
+              eq(episodes.ingestionStatus, "ready"),
+              eq(episodes.isActive, true)
+            )
+          )
+          .orderBy(asc(episodes.sequenceNumber))
+          .limit(1)
+      }
+
+      if (targetEpisode) {
+        await tx
+          .update(userProgramProgress)
+          .set({ isActive: false, updatedAt: now })
+          .where(eq(userProgramProgress.userId, userId))
+        await tx
+          .insert(userProgramProgress)
+          .values({
+            userId,
+            programId: pendingSwitch.programId,
+            currentEpisodeId: targetEpisode.episodeId,
+            isActive: true,
+          })
+          .onConflictDoUpdate({
+            target: [userProgramProgress.userId, userProgramProgress.programId],
+            set: {
+              currentEpisodeId: targetEpisode.episodeId,
+              isActive: true,
+              updatedAt: now,
+            },
+          })
+        await tx
+          .delete(pendingProgramSwitches)
+          .where(eq(pendingProgramSwitches.userId, userId))
       }
     }
 
