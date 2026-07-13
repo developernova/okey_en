@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "type": "module",
   "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -15,7 +18,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "lexicon:import": "node --env-file=.env.local scripts/import-lexicon.mjs",
-    "reminders:send": "node --env-file=.env.local scripts/send-reminders.mjs"
+    "reminders:send": "node --env-file-if-exists=.env.local scripts/send-reminders.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

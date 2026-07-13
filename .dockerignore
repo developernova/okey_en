@@ -1,0 +1,13 @@
+.git
+.github
+.idea
+.next
+.playwright-cli
+.playwright-mcp
+coverage
+node_modules
+npm-debug.log*
+.env*
+!.env.example
+*.tsbuildinfo
+
