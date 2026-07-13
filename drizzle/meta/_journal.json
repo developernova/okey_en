@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1783896347249,
+      "tag": "0000_marvelous_roland_deschain",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783898429541,
+      "tag": "0001_calm_runaways",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783899413309,
+      "tag": "0002_nebulous_robbie_robertson",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783900550590,
+      "tag": "0003_yellow_groot",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783941439066,
+      "tag": "0004_quick_king_cobra",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783943168774,
+      "tag": "0005_worried_shape",
+      "breakpoints": true
+    }
+  ]
+}
