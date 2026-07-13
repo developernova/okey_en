@@ -2,6 +2,12 @@ export const CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const
 
 export type CefrLevel = (typeof CEFR_LEVELS)[number]
 
+export function learningCefrLevels(level: string | null | undefined) {
+  const index = CEFR_LEVELS.indexOf(level as CefrLevel)
+  if (index < 0) return [...CEFR_LEVELS]
+  return CEFR_LEVELS.slice(index, index + 2)
+}
+
 export function cefrRange(levels: readonly string[]) {
   const indexes = levels
     .map((level) => CEFR_LEVELS.indexOf(level as CefrLevel))

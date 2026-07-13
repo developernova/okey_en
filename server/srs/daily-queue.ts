@@ -1,7 +1,8 @@
-import { and, asc, count, eq, gt, lte } from "drizzle-orm"
+import { and, asc, count, eq, gt, inArray, lte } from "drizzle-orm"
 
 import { getDb } from "@/db"
 import { phrases, userCards, users } from "@/db/schema"
+import { learningCefrLevels } from "@/server/content/cefr"
 import { newFsrsCard } from "@/server/srs/fsrs"
 
 function daysSince(value: Date | null, now: Date) {
@@ -16,11 +17,21 @@ export async function ensureEpisodeCards(input: {
 }) {
   const db = getDb()
   const now = input.now ?? new Date()
+  const [user] = await db
+    .select({ levelEstimate: users.levelEstimate })
+    .from(users)
+    .where(eq(users.id, input.userId))
+    .limit(1)
+  const targetLevels = learningCefrLevels(user?.levelEstimate)
   const episodePhrases = await db
     .select({ id: phrases.id })
     .from(phrases)
     .where(
-      and(eq(phrases.episodeId, input.episodeId), eq(phrases.isActive, true))
+      and(
+        eq(phrases.episodeId, input.episodeId),
+        eq(phrases.isActive, true),
+        inArray(phrases.cefr, targetLevels)
+      )
     )
     .orderBy(asc(phrases.offsetMs))
 
@@ -62,7 +73,10 @@ export async function buildDailyQueue(input: {
   }
 
   const [user] = await db
-    .select({ lastActiveAt: users.lastActiveAt })
+    .select({
+      lastActiveAt: users.lastActiveAt,
+      levelEstimate: users.levelEstimate,
+    })
     .from(users)
     .where(eq(users.id, input.userId))
     .limit(1)
@@ -86,6 +100,7 @@ export async function buildDailyQueue(input: {
     )
 
   const pauseNewCards = isReturnDay || reviewCount.value > 25
+  const targetLevels = learningCefrLevels(user?.levelEstimate)
 
   const reviews = await db
     .select({
@@ -130,6 +145,7 @@ export async function buildDailyQueue(input: {
             eq(userCards.userId, input.userId),
             eq(userCards.isSuspended, false),
             eq(phrases.isActive, true),
+            inArray(phrases.cefr, targetLevels),
             eq(userCards.reps, 0),
             lte(userCards.due, now)
           )

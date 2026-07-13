@@ -128,7 +128,7 @@ async function extractChunk(input: {
     {
       role: "system",
       content:
-        "You select useful English vocabulary cards from video transcripts. Never invent text. Prefer reusable spoken lexical chunks of 2–7 words over full sentences, names, trivia, transparent cognates, calls to subscribe, or channel promotion.",
+        "You select useful English vocabulary cards from video transcripts. Never invent text. Select lexical units worth memorizing: idioms, phrasal verbs, collocations, and fixed spoken expressions. Prefer reusable chunks of 2–7 words. Exclude pure grammar frames and compositional fragments such as 'instead of doing', as well as full sentences, names, trivia, transparent cognates, calls to subscribe, or channel promotion.",
     },
     {
       role: "user",
@@ -138,6 +138,8 @@ async function extractChunk(input: {
         "Determine the CEFR level of every phrase independently from A1 to C2. Do not force phrases into a requested level range.",
         "Each phrase and context must appear verbatim in the transcript.",
         "Never select promotional calls to subscribe, like, share, follow, or watch more videos.",
+        "Avoid near-duplicates and prefer variety across scenes and meanings. Do not fill the list with several phrases teaching the same idea from one short passage.",
+        "Confidence is your combined confidence that the item is a reusable lexical unit, is grounded verbatim in the transcript, and has an accurate translation and CEFR label. It is not confidence about transcript existence alone.",
         "Use the supplied segment index. Translate naturally into Russian.",
         "Transcript lines have format segmentIndex|offsetMs|text:",
         transcript,

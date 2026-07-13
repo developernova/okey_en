@@ -21,7 +21,7 @@ import type { ImportEpisodeInput } from "@/server/content/types"
 import { getYoutubeTranscript } from "@/server/content/youtube-transcript"
 import { AppError, toErrorMessage } from "@/server/shared/errors"
 
-export const IMPORT_PROMPT_VERSION = "episode-phrases-v2-auto-cefr"
+export const IMPORT_PROMPT_VERSION = "episode-phrases-v3-lexical-units"
 
 export async function importEpisode(
   input: ImportEpisodeInput,

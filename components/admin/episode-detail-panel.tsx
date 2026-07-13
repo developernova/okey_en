@@ -261,7 +261,7 @@ export function EpisodeDetailPanel({
                   <TableHead>Фраза и контекст</TableHead>
                   <TableHead>Перевод</TableHead>
                   <TableHead>CEFR</TableHead>
-                  <TableHead>Уверенность</TableHead>
+                  <TableHead>Оценка ИИ</TableHead>
                   <TableHead>Статус</TableHead>
                   <TableHead>Время</TableHead>
                 </TableRow>
