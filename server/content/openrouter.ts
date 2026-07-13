@@ -9,7 +9,10 @@ import {
 } from "@/server/content/types"
 import { normalizePhrase } from "@/server/content/text"
 import { AppError } from "@/server/shared/errors"
-import { describeOpenRouterError } from "@/server/content/openrouter-error"
+import {
+  describeOpenRouterError,
+  isOpenRouterInvalidArgument,
+} from "@/server/content/openrouter-error"
 
 const openRouterResponseSchema = z.object({
   id: z.string(),
@@ -121,41 +124,48 @@ async function extractChunk(input: {
     .map((segment) => `${segment.index}|${segment.offsetMs}|${segment.text}`)
     .join("\n")
 
-  const requestBody = JSON.stringify({
-    model: config.OPENROUTER_MODEL,
-    temperature: 0.2,
-    messages: [
-      {
-        role: "system",
-        content:
-          "You select useful English vocabulary cards from video transcripts. Never invent text. Prefer reusable spoken lexical chunks of 2–7 words over full sentences, names, trivia, transparent cognates, calls to subscribe, or channel promotion.",
-      },
-      {
-        role: "user",
-        content: [
-          `Return up to ${input.requestedCount} useful phrases.`,
-          "Determine the CEFR level of every phrase independently from A1 to C2. Do not force phrases into a requested level range.",
-          "Each phrase and context must appear verbatim in the transcript.",
-          "Never select promotional calls to subscribe, like, share, follow, or watch more videos.",
-          "Use the supplied segment index. Translate naturally into Russian.",
-          "Transcript lines have format segmentIndex|offsetMs|text:",
-          transcript,
-        ].join("\n\n"),
-      },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "episode_phrases",
-        strict: true,
-        schema: phraseJsonSchema,
-      },
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You select useful English vocabulary cards from video transcripts. Never invent text. Prefer reusable spoken lexical chunks of 2–7 words over full sentences, names, trivia, transparent cognates, calls to subscribe, or channel promotion.",
     },
-    provider: { require_parameters: true },
-  })
+    {
+      role: "user",
+      content: [
+        `Return up to ${input.requestedCount} useful phrases.`,
+        "Return one JSON object with a single phrases array. Every phrase must contain phrase, lemma, translationRu, contextSentence, cefr, segmentIndex, confidence, and rationale.",
+        "Determine the CEFR level of every phrase independently from A1 to C2. Do not force phrases into a requested level range.",
+        "Each phrase and context must appear verbatim in the transcript.",
+        "Never select promotional calls to subscribe, like, share, follow, or watch more videos.",
+        "Use the supplied segment index. Translate naturally into Russian.",
+        "Transcript lines have format segmentIndex|offsetMs|text:",
+        transcript,
+      ].join("\n\n"),
+    },
+  ]
+
+  const requestBody = (strictSchema: boolean) =>
+    JSON.stringify({
+      model: config.OPENROUTER_MODEL,
+      temperature: 0.2,
+      messages,
+      response_format: strictSchema
+        ? {
+            type: "json_schema",
+            json_schema: {
+              name: "episode_phrases",
+              strict: true,
+              schema: phraseJsonSchema,
+            },
+          }
+        : { type: "json_object" },
+      provider: { require_parameters: true },
+    })
 
   let response: Response | undefined
   let lastError: unknown
+  let strictSchema = true
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -168,12 +178,22 @@ async function extractChunk(input: {
           "X-OpenRouter-Title": config.OPENROUTER_APP_NAME,
           "X-OpenRouter-Metadata": "enabled",
         },
-        body: requestBody,
+        body: requestBody(strictSchema),
         signal: AbortSignal.timeout(180_000),
       })
 
       if (response.ok) break
       const details = await response.text()
+      if (
+        strictSchema &&
+        isOpenRouterInvalidArgument(response.status, details)
+      ) {
+        strictSchema = false
+        lastError = new Error(
+          "OpenRouter provider rejected the strict JSON schema; retrying in JSON mode"
+        )
+        continue
+      }
       if (response.status < 500 && response.status !== 429) {
         throw new AppError(
           describeOpenRouterError(response.status, details),

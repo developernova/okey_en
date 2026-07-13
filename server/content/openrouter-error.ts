@@ -26,3 +26,10 @@ export function describeOpenRouterError(status: number, body: string) {
   const suffix = reason ? `: ${reason.slice(0, 600)}` : ""
   return `OpenRouter ${status}${suffix}`
 }
+
+export function isOpenRouterInvalidArgument(status: number, body: string) {
+  return (
+    status === 400 &&
+    (/INVALID_ARGUMENT/i.test(body) || /invalid argument/i.test(body))
+  )
+}

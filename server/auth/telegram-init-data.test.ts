@@ -15,12 +15,8 @@ function signInitData(values: Record<string, string>) {
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
     .map(([key, value]) => `${key}=${value}`)
     .join("\n")
-  const secretKey = createHmac("sha256", "WebAppData")
-    .update(botToken)
-    .digest()
-  const hash = createHmac("sha256", secretKey)
-    .update(checkString)
-    .digest("hex")
+  const secretKey = createHmac("sha256", "WebAppData").update(botToken).digest()
+  const hash = createHmac("sha256", secretKey).update(checkString).digest("hex")
   params.set("hash", hash)
   return params.toString()
 }
@@ -32,9 +28,13 @@ function validInitData(overrides: Record<string, string> = {}) {
     user: JSON.stringify({
       id: 7_123_456_789,
       first_name: "Test",
+      last_name: "User",
       username: "test_user",
       language_code: "ru",
       is_premium: true,
+      added_to_attachment_menu: true,
+      allows_write_to_pm: true,
+      photo_url: "https://t.me/i/userpic/320/test.svg",
     }),
     ...overrides,
   })
@@ -52,15 +52,19 @@ function expectAppError(action: () => unknown, code: string) {
 
 describe("Telegram Mini App initData", () => {
   it("returns the verified Telegram identity", () => {
-    expect(validateTelegramInitData(validInitData(), botToken, { now })).toEqual(
-      {
-        telegramUserId: "7123456789",
-        firstName: "Test",
-        username: "test_user",
-        languageCode: "ru",
-        isPremium: true,
-      }
-    )
+    expect(
+      validateTelegramInitData(validInitData(), botToken, { now })
+    ).toEqual({
+      telegramUserId: "7123456789",
+      firstName: "Test",
+      lastName: "User",
+      username: "test_user",
+      languageCode: "ru",
+      isPremium: true,
+      addedToAttachmentMenu: true,
+      allowsWriteToPm: true,
+      photoUrl: "https://t.me/i/userpic/320/test.svg",
+    })
   })
 
   it("rejects data changed after Telegram signed it", () => {
@@ -88,9 +92,9 @@ describe("Telegram Mini App initData", () => {
 
   it("includes the optional signature field in the HMAC input", () => {
     const initData = validInitData({ signature: "telegram-signature" })
-    expect(validateTelegramInitData(initData, botToken, { now }).telegramUserId).toBe(
-      "7123456789"
-    )
+    expect(
+      validateTelegramInitData(initData, botToken, { now }).telegramUserId
+    ).toBe("7123456789")
   })
 
   it("rejects missing user data and duplicate fields", () => {

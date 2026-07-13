@@ -25,12 +25,31 @@ async function resolveTelegramUserId(rawInitData: string) {
     .insert(users)
     .values({
       telegramUserId: identity.telegramUserId,
+      firstName: identity.firstName,
+      lastName: identity.lastName ?? null,
+      username: identity.username ?? null,
+      languageCode: identity.languageCode ?? null,
+      isPremium: identity.isPremium,
+      addedToAttachmentMenu: identity.addedToAttachmentMenu,
+      allowsWriteToPm: identity.allowsWriteToPm,
+      photoUrl: identity.photoUrl ?? null,
       lastActiveAt: now,
       updatedAt: now,
     })
     .onConflictDoUpdate({
       target: users.telegramUserId,
-      set: { lastActiveAt: now, updatedAt: now },
+      set: {
+        firstName: identity.firstName,
+        lastName: identity.lastName ?? null,
+        username: identity.username ?? null,
+        languageCode: identity.languageCode ?? null,
+        isPremium: identity.isPremium,
+        addedToAttachmentMenu: identity.addedToAttachmentMenu,
+        allowsWriteToPm: identity.allowsWriteToPm,
+        photoUrl: identity.photoUrl ?? null,
+        lastActiveAt: now,
+        updatedAt: now,
+      },
     })
     .returning({ id: users.id })
 

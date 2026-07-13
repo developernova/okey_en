@@ -8,13 +8,19 @@ const MAX_INIT_DATA_LENGTH = 16_384
 export const DEFAULT_INIT_DATA_MAX_AGE_SECONDS = 24 * 60 * 60
 
 const telegramUserSchema = z.object({
-  id: z.number().int().positive().max(2 ** 52 - 1),
-  first_name: z.string().min(1),
-  last_name: z.string().optional(),
-  username: z.string().optional(),
-  language_code: z.string().optional(),
+  id: z
+    .number()
+    .int()
+    .positive()
+    .max(2 ** 52 - 1),
+  first_name: z.string().min(1).max(128),
+  last_name: z.string().max(128).optional(),
+  username: z.string().max(64).optional(),
+  language_code: z.string().max(35).optional(),
   is_premium: z.boolean().optional(),
+  added_to_attachment_menu: z.boolean().optional(),
   allows_write_to_pm: z.boolean().optional(),
+  photo_url: z.url().max(2_048).optional(),
 })
 
 export type TelegramIdentity = {
@@ -24,6 +30,9 @@ export type TelegramIdentity = {
   username?: string
   languageCode?: string
   isPremium: boolean
+  addedToAttachmentMenu: boolean
+  allowsWriteToPm: boolean
+  photoUrl?: string
 }
 
 type ValidationOptions = {
@@ -66,9 +75,7 @@ export function validateTelegramInitData(
   const hash = params.get("hash")
   if (!hash || !/^[a-f\d]{64}$/i.test(hash)) invalidInitData()
 
-  const secretKey = createHmac("sha256", "WebAppData")
-    .update(botToken)
-    .digest()
+  const secretKey = createHmac("sha256", "WebAppData").update(botToken).digest()
   const expectedHash = createHmac("sha256", secretKey)
     .update(dataCheckString(params))
     .digest()
@@ -124,5 +131,8 @@ export function validateTelegramInitData(
     username: result.data.username,
     languageCode: result.data.language_code,
     isPremium: result.data.is_premium ?? false,
+    addedToAttachmentMenu: result.data.added_to_attachment_menu ?? false,
+    allowsWriteToPm: result.data.allows_write_to_pm ?? false,
+    photoUrl: result.data.photo_url,
   }
 }

@@ -87,7 +87,7 @@ The interview uses `deepseek/deepseek-v4-flash` by default. PostgreSQL stores on
 
 Voice answers are best-effort. Supported Telegram clients can record an answer and send it to the OpenRouter transcription endpoint using the same `OPENROUTER_API_KEY` as the interview. `OPENROUTER_TRANSCRIPTION_MODEL` defaults to `openai/whisper-large-v3`; any OpenRouter model with transcription output can be configured. Text input remains available at all times.
 
-In Telegram, the client automatically sends raw `Telegram.WebApp.initData` with every learner API request. The server verifies its HMAC signature and 24-hour freshness using `TELEGRAM_BOT_TOKEN`, then creates or restores the matching row in `users`. In production, requests without valid `initData` fail closed. Browser development continues to use `DEV_USER_ID` or the `x-user-id` header when no `initData` is available.
+In Telegram, the client automatically sends raw `Telegram.WebApp.initData` with every learner API request. The server verifies its HMAC signature and 24-hour freshness using `TELEGRAM_BOT_TOKEN`, then creates or restores the matching row in `users`. The verified WebApp profile fields (name, username, language, Premium and messaging/menu flags, and photo URL when Telegram provides it) are refreshed on every authenticated request; raw `initData` is never stored. In production, requests without valid `initData` fail closed. Browser development continues to use `DEV_USER_ID` or the `x-user-id` header when no `initData` is available.
 
 ## Telegram reminders
 

@@ -45,6 +45,16 @@ export const lexemeSource = pgEnum("lexeme_source", [
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   telegramUserId: text("telegram_user_id").unique(),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  username: text("username"),
+  languageCode: text("language_code"),
+  isPremium: boolean("is_premium").notNull().default(false),
+  addedToAttachmentMenu: boolean("added_to_attachment_menu")
+    .notNull()
+    .default(false),
+  allowsWriteToPm: boolean("allows_write_to_pm").notNull().default(false),
+  photoUrl: text("photo_url"),
   timezone: text("timezone").notNull().default("Europe/Moscow"),
   reminderTime: time("reminder_time"),
   levelEstimate: text("level_estimate"),
