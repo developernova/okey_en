@@ -1028,17 +1028,12 @@ export function WordflowApp() {
   ) {
     const episodeId = todayData?.episode.id
     const answer = (answerOverride ?? interviewDraft).trim()
-    if (
-      !episodeId ||
-      !interviewToken ||
-      !answer ||
-      interviewLoading ||
-      interviewCompleted
-    ) {
+    if (!episodeId || !interviewToken || !answer || interviewLoading) {
       return
     }
 
     const run = interviewRun.current
+    const stepWasCompleted = interviewCompleted
     const messageId = retryMessageId ?? crypto.randomUUID()
     if (retryMessageId) {
       setInterviewMessages((messages) =>
@@ -1106,8 +1101,7 @@ export function WordflowApp() {
       setInterviewToken(turn.sessionToken)
       setInterviewAnswers(turn.answersCompleted)
       setInterviewCompleted(turn.completed)
-      if (turn.completed) {
-        releaseMicrophone()
+      if (turn.completed && !stepWasCompleted) {
         setRetellDone(true)
         getTelegramWebApp()?.HapticFeedback?.notificationOccurred("success")
       }
@@ -1175,8 +1169,7 @@ export function WordflowApp() {
       !episodeId ||
       !sessionToken ||
       interviewLoading ||
-      voicePhase !== "idle" ||
-      interviewCompleted
+      voicePhase !== "idle"
     ) {
       return
     }
@@ -1857,17 +1850,7 @@ export function WordflowApp() {
             )}
           </div>
 
-          {interviewCompleted ? (
-            <div className="border-t bg-background p-4 pb-[calc(16px+var(--app-safe-bottom))]">
-              <Button
-                size="lg"
-                className="h-14 w-full rounded-2xl text-base"
-                onClick={leaveInterview}
-              >
-                Вернуться к плану <Icon icon={Tick02Icon} />
-              </Button>
-            </div>
-          ) : interviewToken ? (
+          {interviewToken ? (
             <form
               className="border-t bg-background p-4 pb-[calc(16px+var(--app-safe-bottom))]"
               onSubmit={(event) => {
@@ -1908,7 +1891,11 @@ export function WordflowApp() {
                       event.currentTarget.form?.requestSubmit()
                     }
                   }}
-                  placeholder="Напиши ответ по-английски"
+                  placeholder={
+                    interviewCompleted
+                      ? "Продолжить по теме видео"
+                      : "Напиши ответ по-английски"
+                  }
                   className="max-h-28 min-h-12 flex-1 resize-none rounded-2xl border bg-card px-4 py-3 text-sm outline-none focus:border-foreground"
                 />
                 {voiceAvailable && (
@@ -1950,6 +1937,16 @@ export function WordflowApp() {
                   <Icon icon={ArrowRight01Icon} />
                 </Button>
               </div>
+              {interviewCompleted && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="mt-2 h-11 w-full rounded-2xl"
+                  onClick={leaveInterview}
+                >
+                  Вернуться к плану <Icon icon={Tick02Icon} />
+                </Button>
+              )}
             </form>
           ) : null}
         </div>

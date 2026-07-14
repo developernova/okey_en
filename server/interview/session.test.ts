@@ -7,10 +7,11 @@ import {
 
 const secret = "test-secret-that-is-long-enough"
 const state = {
-  version: 2 as const,
+  version: 3 as const,
   userId: "11111111-1111-4111-8111-111111111111",
   episodeId: "22222222-2222-4222-8222-222222222222",
   requestDate: "2026-07-13",
+  mode: "interview" as const,
   answersCompleted: 1,
   questions: [
     {

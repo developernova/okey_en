@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  buildContinuationMessages,
   buildFactualReactionMessages,
   buildLanguageCorrectionMessages,
   buildQuestionPlanMessages,
   factualReactionSystemPrompt,
   languageCorrectionSystemPrompt,
+  continuationSystemPrompt,
 } from "@/server/interview/prompt"
 
 describe("interview prompts", () => {
@@ -74,5 +76,28 @@ describe("interview prompts", () => {
       "directly says they do not know"
     )
     expect(languageCorrectionSystemPrompt).toContain("I don't know this word")
+  })
+
+  it("keeps optional continuation focused on output practice", () => {
+    const messages = buildContinuationMessages({
+      transcript: "They packed their luggage before the flight.",
+      level: "A2",
+      knownVocabulary: ["pack", "luggage", "flight"],
+      conversation: [
+        { role: "user", content: "I usually travel with one bag." },
+      ],
+    })
+    const content = messages.map((message) => message.content).join("\n")
+
+    expect(content).toContain("They packed their luggage")
+    expect(continuationSystemPrompt).toContain("not a friend, therapist")
+    expect(continuationSystemPrompt).toContain(
+      "strictly about the supplied video"
+    )
+    expect(continuationSystemPrompt).toContain("at most one short reaction")
+    expect(continuationSystemPrompt).toContain(
+      "Return at most one language correction"
+    )
+    expect(continuationSystemPrompt).toContain("do not deepen that branch")
   })
 })

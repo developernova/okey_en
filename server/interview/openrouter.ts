@@ -2,6 +2,7 @@ import { z } from "zod"
 
 import { env } from "@/server/config/env"
 import {
+  buildContinuationMessages,
   buildFactualReactionMessages,
   buildLanguageCorrectionMessages,
   buildQuestionPlanMessages,
@@ -33,6 +34,11 @@ const languageCorrectionSchema = z.object({
 
 const factualReactionSchema = z.object({
   reaction: z.string().min(1).max(500).nullable(),
+})
+
+const continuationTurnSchema = z.object({
+  correction: z.string().min(1).max(500).nullable(),
+  message: z.string().min(1).max(500),
 })
 
 const completionSchema = z.object({
@@ -116,6 +122,21 @@ const factualReactionJsonSchema = {
     },
   },
   required: ["reaction"],
+} as const
+
+const continuationTurnJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    correction: {
+      anyOf: [
+        { type: "string", minLength: 1, maxLength: 500 },
+        { type: "null" },
+      ],
+    },
+    message: { type: "string", minLength: 1, maxLength: 500 },
+  },
+  required: ["correction", "message"],
 } as const
 
 async function requestStructured<T>(input: {
@@ -244,7 +265,6 @@ export function generateInterviewAnalysis(input: {
   transcript: string
   question: string
   answer: string
-  answersCompleted: number
 }) {
   const correction = requestStructured({
     episodeId: input.episodeId,
@@ -267,9 +287,27 @@ export function generateInterviewAnalysis(input: {
     correction: language.correction,
     unknownWord: language.unknownWord,
     reaction: factual.reaction,
-    closing:
-      input.answersCompleted === 3
-        ? "Спасибо за ответы! Было интересно поговорить."
-        : null,
   }))
+}
+
+export function generateContinuationTurn(input: {
+  episodeId: string
+  transcript: string
+  learnerLevel: string
+  knownVocabulary: string[]
+  conversation: Array<{ role: "assistant" | "user"; content: string }>
+}) {
+  return requestStructured({
+    episodeId: input.episodeId,
+    messages: buildContinuationMessages({
+      transcript: input.transcript,
+      level: input.learnerLevel,
+      knownVocabulary: input.knownVocabulary,
+      conversation: input.conversation,
+    }),
+    schemaName: "video_interview_continuation",
+    jsonSchema: continuationTurnJsonSchema,
+    responseSchema: continuationTurnSchema,
+    maxTokens: 220,
+  })
 }

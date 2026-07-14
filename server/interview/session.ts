@@ -12,13 +12,14 @@ const conversationMessageSchema = z.object({
 })
 
 export const interviewStateSchema = z.object({
-  version: z.literal(2),
+  version: z.literal(3),
   userId: z.uuid(),
   episodeId: z.uuid(),
   requestDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  mode: z.enum(["interview", "continuation"]),
   answersCompleted: z.number().int().min(0).max(3),
   questions: z.array(interviewQuestionSchema).length(3),
-  conversation: z.array(conversationMessageSchema).max(7),
+  conversation: z.array(conversationMessageSchema).max(10),
   issuedAt: z.number().int().positive(),
 })
 

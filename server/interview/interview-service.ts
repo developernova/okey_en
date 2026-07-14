@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gte } from "drizzle-orm"
 
 import { getDb } from "@/db"
 import {
+  dailyPlans,
   episodes,
   transcriptSegments,
   userLexemes,
@@ -10,6 +11,7 @@ import {
 } from "@/db/schema"
 import { completeDailyPlanItem } from "@/server/daily-plan/daily-plan-service"
 import {
+  generateContinuationTurn,
   generateInterviewAnalysis,
   generateInterviewQuestions,
 } from "@/server/interview/openrouter"
@@ -25,27 +27,63 @@ import {
 import { AppError } from "@/server/shared/errors"
 import { prioritizeInterviewWord } from "@/server/interview/word-help"
 
-async function getInterviewContext(userId: string, episodeId: string) {
+async function getInterviewContext(
+  userId: string,
+  episodeId: string,
+  now = new Date()
+) {
   const db = getDb()
-  const [episode] = await db
+  const [user] = await db
     .select({
       timezone: users.timezone,
       levelEstimate: users.levelEstimate,
     })
-    .from(userProgramProgress)
-    .innerJoin(users, eq(users.id, userProgramProgress.userId))
-    .innerJoin(episodes, eq(episodes.id, userProgramProgress.currentEpisodeId))
-    .where(
-      and(
-        eq(userProgramProgress.userId, userId),
-        eq(userProgramProgress.currentEpisodeId, episodeId),
-        eq(userProgramProgress.isActive, true),
-        eq(episodes.ingestionStatus, "ready")
-      )
-    )
+    .from(users)
+    .where(eq(users.id, userId))
     .limit(1)
 
-  if (!episode) {
+  if (!user) {
+    throw new AppError("User not found", 404, "USER_NOT_FOUND")
+  }
+
+  const planDate = dateInTimezone(now, user.timezone)
+  const [[readyEpisode], [activeEpisode], [todayEpisode]] = await Promise.all([
+    db
+      .select({ id: episodes.id })
+      .from(episodes)
+      .where(
+        and(
+          eq(episodes.id, episodeId),
+          eq(episodes.ingestionStatus, "ready"),
+          eq(episodes.isActive, true)
+        )
+      )
+      .limit(1),
+    db
+      .select({ episodeId: userProgramProgress.currentEpisodeId })
+      .from(userProgramProgress)
+      .where(
+        and(
+          eq(userProgramProgress.userId, userId),
+          eq(userProgramProgress.currentEpisodeId, episodeId),
+          eq(userProgramProgress.isActive, true)
+        )
+      )
+      .limit(1),
+    db
+      .select({ episodeId: dailyPlans.episodeId })
+      .from(dailyPlans)
+      .where(
+        and(
+          eq(dailyPlans.userId, userId),
+          eq(dailyPlans.episodeId, episodeId),
+          eq(dailyPlans.planDate, planDate)
+        )
+      )
+      .limit(1),
+  ])
+
+  if (!readyEpisode || (!activeEpisode && !todayEpisode)) {
     throw new AppError(
       "Episode is not active for this user",
       404,
@@ -73,8 +111,8 @@ async function getInterviewContext(userId: string, episodeId: string) {
     .limit(1_200)
 
   return {
-    timezone: episode.timezone,
-    learnerLevel: episode.levelEstimate ?? "A2",
+    timezone: user.timezone,
+    learnerLevel: user.levelEstimate ?? "A2",
     knownVocabulary: knownVocabulary.map((item) => item.lemma),
     transcript: segments.map((segment) => segment.text).join("\n"),
   }
@@ -91,7 +129,6 @@ function assertUsableInterviewState(input: {
     input.state.userId !== input.userId ||
     input.state.episodeId !== input.episodeId ||
     input.state.requestDate !== input.requestDate ||
-    input.state.answersCompleted >= 3 ||
     input.now.getTime() - input.state.issuedAt > 6 * 60 * 60 * 1000 ||
     input.state.issuedAt > input.now.getTime() + 5 * 60 * 1000
   ) {
@@ -103,6 +140,22 @@ function assertUsableInterviewState(input: {
   }
 }
 
+function assertQuestionState(state: ReturnType<typeof verifyInterviewState>) {
+  if (state.mode !== "interview" || state.answersCompleted >= 3) {
+    throw new AppError(
+      "Интервью устарело. Начни его заново.",
+      400,
+      "INTERVIEW_SESSION_EXPIRED"
+    )
+  }
+}
+
+function recentConversation(
+  conversation: ReturnType<typeof verifyInterviewState>["conversation"]
+) {
+  return conversation.slice(-10)
+}
+
 function publicQuestionWords(
   question: ReturnType<typeof verifyInterviewState>["questions"][number]
 ) {
@@ -111,7 +164,7 @@ function publicQuestionWords(
 
 export async function startInterview(userId: string, episodeId: string) {
   const now = new Date()
-  const context = await getInterviewContext(userId, episodeId)
+  const context = await getInterviewContext(userId, episodeId, now)
   const { requestDate } = await reserveInterviewRequest({
     userId,
     episodeId,
@@ -126,10 +179,11 @@ export async function startInterview(userId: string, episodeId: string) {
   })
   const firstQuestion = plan.questions[0]
   const state = {
-    version: 2 as const,
+    version: 3 as const,
     userId,
     episodeId,
     requestDate,
+    mode: "interview" as const,
     answersCompleted: 0,
     questions: plan.questions,
     conversation: [{ role: "assistant" as const, content: firstQuestion.text }],
@@ -155,7 +209,7 @@ export async function replyToInterview(input: {
   answer: string
 }) {
   const now = new Date()
-  const context = await getInterviewContext(input.userId, input.episodeId)
+  const context = await getInterviewContext(input.userId, input.episodeId, now)
   const state = verifyInterviewState(input.sessionToken)
   const requestDate = dateInTimezone(now, context.timezone)
   assertUsableInterviewState({
@@ -174,6 +228,47 @@ export async function replyToInterview(input: {
   })
 
   const answer = input.answer.trim()
+  if (state.mode === "continuation") {
+    const conversation = recentConversation([
+      ...state.conversation,
+      { role: "user" as const, content: answer },
+    ])
+    const turn = await generateContinuationTurn({
+      episodeId: input.episodeId,
+      transcript: context.transcript,
+      learnerLevel: context.learnerLevel,
+      knownVocabulary: context.knownVocabulary,
+      conversation,
+    })
+    const assistantContent = [
+      turn.correction ? `Language correction: ${turn.correction}` : null,
+      turn.message,
+    ]
+      .filter(Boolean)
+      .join("\n")
+    const nextConversation = recentConversation([
+      ...conversation,
+      { role: "assistant" as const, content: assistantContent },
+    ])
+
+    return {
+      message: turn.message,
+      correction: turn.correction,
+      reaction: null,
+      queuedWord: null,
+      completed: true,
+      answersCompleted: 3,
+      questionNumber: null,
+      questionWords: [],
+      sessionToken: signInterviewState({
+        ...state,
+        conversation: nextConversation,
+        issuedAt: now.getTime(),
+      }),
+    }
+  }
+
+  assertQuestionState(state)
   const answersCompleted = state.answersCompleted + 1
   const currentQuestion = state.questions[state.answersCompleted]
   const conversation = [
@@ -185,7 +280,6 @@ export async function replyToInterview(input: {
     transcript: context.transcript,
     question: currentQuestion.text,
     answer,
-    answersCompleted,
   })
   const unknownGloss = turn.unknownWord
     ? findQuestionGloss(currentQuestion, turn.unknownWord)
@@ -209,7 +303,7 @@ export async function replyToInterview(input: {
     })
   }
   const message = completed
-    ? (turn.closing ?? "Спасибо, на сегодня всё.")
+    ? "Шаг засчитан ✓. Хочешь ещё обсудить видео — пиши, или возвращайся к плану."
     : state.questions[answersCompleted].text
   const assistantContent = [
     turn.correction ? `Language correction: ${turn.correction}` : null,
@@ -234,14 +328,13 @@ export async function replyToInterview(input: {
     questionWords: completed
       ? []
       : publicQuestionWords(state.questions[answersCompleted]),
-    sessionToken: completed
-      ? null
-      : signInterviewState({
-          ...state,
-          answersCompleted,
-          conversation: nextConversation,
-          issuedAt: now.getTime(),
-        }),
+    sessionToken: signInterviewState({
+      ...state,
+      mode: completed ? "continuation" : "interview",
+      answersCompleted,
+      conversation: recentConversation(nextConversation),
+      issuedAt: now.getTime(),
+    }),
   }
 }
 
@@ -252,7 +345,7 @@ export async function helpWithInterviewWord(input: {
   word: string
 }) {
   const now = new Date()
-  const context = await getInterviewContext(input.userId, input.episodeId)
+  const context = await getInterviewContext(input.userId, input.episodeId, now)
   const state = verifyInterviewState(input.sessionToken)
   assertUsableInterviewState({
     state,
@@ -261,6 +354,7 @@ export async function helpWithInterviewWord(input: {
     requestDate: dateInTimezone(now, context.timezone),
     now,
   })
+  assertQuestionState(state)
 
   return prioritizeInterviewWord({
     userId: input.userId,

@@ -4,9 +4,9 @@ import { getDb } from "@/db"
 import { interviewRequests, users } from "@/db/schema"
 import { AppError } from "@/server/shared/errors"
 
-const requestsPerMinute = 10
+const requestsPerMinute = 15
 const userMessagesPerDay = 30
-const totalRequestsPerDay = 40
+const totalRequestsPerDay = 70
 
 export type InterviewRequestKind = "start" | "reply" | "transcribe"
 
@@ -86,7 +86,7 @@ export async function reserveInterviewRequest(input: {
       (input.kind === "reply" && dailyReplies.value >= userMessagesPerDay)
     ) {
       throw new AppError(
-        "Лимит интервью на сегодня закончился. Продолжим завтра.",
+        "Дневной лимит сообщений исчерпан. Новый лимит будет доступен завтра.",
         429,
         "INTERVIEW_DAILY_LIMIT"
       )

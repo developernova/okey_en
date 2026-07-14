@@ -5,6 +5,7 @@ import { dailyPlans, reminderDeliveries, users } from "@/db/schema"
 import { env } from "@/server/config/env"
 import { dateInTimezone } from "@/server/interview/rate-limit"
 import { AppError } from "@/server/shared/errors"
+import { getToday } from "@/server/today/get-today"
 
 export function timeInTimezone(date: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -46,7 +47,7 @@ export async function setReminder(userId: string, time: string | null) {
   return { time: user.reminderTime?.slice(0, 5) ?? null }
 }
 
-async function sendTelegramReminder(chatId: string) {
+async function sendTelegramReminder(chatId: string, minutes: number) {
   const config = env()
   if (!config.TELEGRAM_BOT_TOKEN) {
     throw new AppError(
@@ -63,14 +64,14 @@ async function sendTelegramReminder(chatId: string) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         chat_id: chatId,
-        text: "Небольшая порция английского уже ждёт тебя. Продолжим?",
+        text: `Сегодняшний план готов — ~${minutes} мин.`,
         ...(config.TELEGRAM_WEB_APP_URL
           ? {
               reply_markup: {
                 inline_keyboard: [
                   [
                     {
-                      text: "Открыть занятие",
+                      text: "Открыть план",
                       web_app: { url: config.TELEGRAM_WEB_APP_URL },
                     },
                   ],
@@ -141,7 +142,18 @@ export async function sendDueReminders(now = new Date()) {
     if (!claim) continue
 
     try {
-      await sendTelegramReminder(candidate.chatId)
+      const today = await getToday(candidate.userId)
+      const remainingMinutes = Math.max(
+        1,
+        (today.plan.completedItems.includes("watch")
+          ? 0
+          : today.episode.durationMinutes) +
+          (today.plan.completedItems.includes("review")
+            ? 0
+            : today.queue.estimatedMinutes) +
+          (today.plan.completedItems.includes("retell") ? 0 : 5)
+      )
+      await sendTelegramReminder(candidate.chatId, remainingMinutes)
       await db
         .update(reminderDeliveries)
         .set({ sentAt: now })
