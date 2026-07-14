@@ -2203,6 +2203,25 @@ export function WordflowApp() {
   const completedCount = [videoDone, cardsDone, retellDone].filter(
     Boolean
   ).length
+  const isPausedDay = todayData?.plan.status === "skipped"
+  const daySummary = isPausedDay
+    ? {
+        label: "Пауза",
+        className: "bg-muted/70 text-muted-foreground",
+      }
+    : allDone
+      ? {
+          label: "Полный день",
+          className:
+            "bg-[#dceedd] text-[#245a31] dark:bg-[#1d3a24] dark:text-[#b8dfbf]",
+        }
+      : completedCount > 0
+        ? {
+            label: "Лёгкий день",
+            className:
+              "bg-[#eef5ef] text-[#607864] dark:bg-[#222d24] dark:text-[#aab9ad]",
+          }
+        : null
   const activeStep = !videoDone ? 0 : !cardsDone ? 1 : !retellDone ? 2 : -1
   const episode = todayData?.episode
   const reviewCount =
@@ -2341,11 +2360,21 @@ export function WordflowApp() {
           </div>
         )}
 
-        {cardsDone && (
-          <div className="mt-6 flex items-center gap-3 rounded-2xl bg-[#e5efe6] px-4 py-3.5 text-[#315d39] dark:bg-[#1d3222] dark:text-[#a6cfad]">
-            <Icon icon={CheckmarkCircle02Icon} size={20} />
+        {daySummary && (
+          <div
+            className={cn(
+              "mt-6 flex items-center gap-3 rounded-2xl px-4 py-3.5",
+              daySummary.className
+            )}
+          >
+            {isPausedDay ? (
+              <span className="size-2 rounded-full bg-current opacity-40" />
+            ) : (
+              <Icon icon={CheckmarkCircle02Icon} size={20} />
+            )}
             <p className="text-sm font-semibold">
-              {allDone ? "Полный день" : "Поддерживающий день"} ✓
+              {daySummary.label}
+              {!isPausedDay && " ✓"}
             </p>
           </div>
         )}

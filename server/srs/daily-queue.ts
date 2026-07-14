@@ -171,7 +171,7 @@ export async function buildDailyQueue(input: {
       1,
       Math.ceil((reviews.length + newCards.length) * 0.4)
     ),
-    message: isReturnDay ? "С возвращением. Сегодня короткий день." : undefined,
+    message: isReturnDay ? "С возвращением. Сегодня лёгкий день." : undefined,
     cards: [...reviews, ...newCards],
   }
 }
