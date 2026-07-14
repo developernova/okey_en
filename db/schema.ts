@@ -391,6 +391,50 @@ export const dailyPlanItems = pgTable(
   ]
 )
 
+export type StoredInterviewMessage = {
+  id: string
+  role: "assistant" | "user" | "correction"
+  text: string
+  questionWords?: string[]
+  helpToken?: string
+}
+
+export const interviewSessions = pgTable(
+  "interview_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    dailyPlanId: uuid("daily_plan_id")
+      .notNull()
+      .references(() => dailyPlans.id, { onDelete: "cascade" }),
+    episodeId: uuid("episode_id")
+      .notNull()
+      .references(() => episodes.id, { onDelete: "cascade" }),
+    sessionToken: text("session_token").notNull(),
+    messages: jsonb("messages")
+      .$type<StoredInterviewMessage[]>()
+      .notNull()
+      .default([]),
+    answersCompleted: integer("answers_completed").notNull().default(0),
+    completed: boolean("completed").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("interview_sessions_daily_plan_unique").on(table.dailyPlanId),
+    index("interview_sessions_user_episode_idx").on(
+      table.userId,
+      table.episodeId
+    ),
+  ]
+)
+
 export const reminderDeliveries = pgTable(
   "reminder_deliveries",
   {

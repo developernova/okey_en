@@ -123,6 +123,8 @@ type InterviewTurnDto = {
   questionNumber: number | null
   questionWords: string[]
   sessionToken: string | null
+  messages?: InterviewMessage[]
+  restored?: boolean
   queuedWord?: {
     word: string
     translationRu: string
@@ -858,9 +860,9 @@ export function WordflowApp() {
       setScreen("today")
     else if (screen === "interview") {
       resetInterview()
-      setScreen(videoDone && cardsDone && retellDone ? "complete" : "today")
+      setScreen("today")
     } else if (screen === "complete") setScreen("today")
-  }, [cardsDone, resetInterview, retellDone, screen, videoDone])
+  }, [resetInterview, screen])
 
   React.useEffect(() => {
     const webApp = getTelegramWebApp()
@@ -1001,17 +1003,20 @@ export function WordflowApp() {
     try {
       const turn = await requestInterview({ action: "start", episodeId })
       if (run !== interviewRun.current) return
-      setInterviewMessages([
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          text: turn.message,
-          questionWords: turn.questionWords,
-          helpToken: turn.sessionToken ?? undefined,
-        },
-      ])
+      setInterviewMessages(
+        turn.messages ?? [
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            text: turn.message,
+            questionWords: turn.questionWords,
+            helpToken: turn.sessionToken ?? undefined,
+          },
+        ]
+      )
       setInterviewToken(turn.sessionToken)
-      setInterviewAnswers(0)
+      setInterviewAnswers(turn.answersCompleted)
+      setInterviewCompleted(turn.completed)
     } catch (error) {
       if (run !== interviewRun.current) return
       setInterviewError(
@@ -1066,38 +1071,41 @@ export function WordflowApp() {
         answer,
       })
       if (run !== interviewRun.current) return
-      setInterviewMessages((messages) => [
-        ...messages.map((message) =>
-          message.id === messageId
-            ? { ...message, delivery: undefined, error: undefined }
-            : message
-        ),
-        ...(turn.correction
-          ? [
-              {
-                id: crypto.randomUUID(),
-                role: "correction" as const,
-                text: turn.correction,
-              },
-            ]
-          : []),
-        ...(turn.reaction
-          ? [
-              {
-                id: crypto.randomUUID(),
-                role: "assistant" as const,
-                text: turn.reaction,
-              },
-            ]
-          : []),
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          text: turn.message,
-          questionWords: turn.questionWords,
-          helpToken: turn.sessionToken ?? undefined,
-        },
-      ])
+      setInterviewMessages(
+        (messages) =>
+          turn.messages ?? [
+            ...messages.map((message) =>
+              message.id === messageId
+                ? { ...message, delivery: undefined, error: undefined }
+                : message
+            ),
+            ...(turn.correction
+              ? [
+                  {
+                    id: crypto.randomUUID(),
+                    role: "correction" as const,
+                    text: turn.correction,
+                  },
+                ]
+              : []),
+            ...(turn.reaction
+              ? [
+                  {
+                    id: crypto.randomUUID(),
+                    role: "assistant" as const,
+                    text: turn.reaction,
+                  },
+                ]
+              : []),
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              text: turn.message,
+              questionWords: turn.questionWords,
+              helpToken: turn.sessionToken ?? undefined,
+            },
+          ]
+      )
       setInterviewToken(turn.sessionToken)
       setInterviewAnswers(turn.answersCompleted)
       setInterviewCompleted(turn.completed)
@@ -1230,7 +1238,7 @@ export function WordflowApp() {
 
   function leaveInterview() {
     resetInterview()
-    setScreen(videoDone && cardsDone && retellDone ? "complete" : "today")
+    setScreen("today")
   }
 
   function markVideoDone() {
@@ -1944,7 +1952,7 @@ export function WordflowApp() {
                   className="mt-2 h-11 w-full rounded-2xl"
                   onClick={leaveInterview}
                 >
-                  Вернуться к плану <Icon icon={Tick02Icon} />
+                  К экрану «Сегодня»
                 </Button>
               )}
             </form>
@@ -2123,13 +2131,14 @@ export function WordflowApp() {
               <Icon icon={CheckmarkCircle02Icon} size={38} />
             </div>
             <p className="mt-8 text-sm font-medium text-muted-foreground">
-              На сегодня всё
+              План на сегодня выполнен
             </p>
             <h1 className="mt-2 text-[34px] font-semibold tracking-tight">
               {sessionCardTotal} фраз укреплено
             </h1>
             <p className="mt-4 max-w-xs text-[15px] leading-6 text-muted-foreground">
-              Выпуск просмотрен, 3 ответа даны. Завтра продолжим отсюда.
+              Выпуск просмотрен, 3 ответа даны. Чат по видео доступен до конца
+              дня.
             </p>
             <div className="mt-9 flex w-full divide-x rounded-2xl bg-muted/70 py-4">
               <div className="flex-1">
@@ -2168,14 +2177,23 @@ export function WordflowApp() {
               </span>
             </button>
           )}
-          <Button
-            variant="secondary"
-            size="lg"
-            className="h-14 w-full rounded-2xl text-base"
-            onClick={() => setScreen("today")}
-          >
-            Вернуться к плану
-          </Button>
+          <div className="space-y-2">
+            <Button
+              size="lg"
+              className="h-14 w-full rounded-2xl text-base"
+              onClick={() => void openInterview()}
+            >
+              Обсудить видео <Icon icon={Chat01Icon} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="lg"
+              className="h-12 w-full rounded-2xl text-sm"
+              onClick={() => setScreen("today")}
+            >
+              К экрану «Сегодня»
+            </Button>
+          </div>
         </div>
       </PhoneShell>
     )
@@ -2296,17 +2314,18 @@ export function WordflowApp() {
           />
           <TaskCard
             icon={Chat01Icon}
-            title="Ответить по видео"
+            title="Обсудить видео"
             meta={
               retellDone
-                ? "3 ответа даны"
+                ? "3 ответа даны · разговор доступен до конца дня"
                 : "Ответь на 3 вопроса о видео · ~5 минут"
             }
             done={retellDone}
             active={activeStep === 2}
             onClick={() => void openInterview()}
             accent="bg-[#e4e2eb] text-[#65617a] dark:bg-[#2d2b36] dark:text-[#bbb6d2]"
-            action="Начать"
+            action={retellDone ? "Продолжить" : "Начать"}
+            showActionWhenDone
           />
         </div>
 
@@ -2370,7 +2389,10 @@ function TaskCard({
         active &&
           "border-foreground bg-card shadow-[0_8px_30px_rgba(0,0,0,0.07)] ring-1 ring-foreground",
         !active && !done && "border-border bg-card opacity-70",
-        done && "border-transparent bg-muted/50 opacity-65"
+        done &&
+          (showActionWhenDone
+            ? "border-border bg-card"
+            : "border-transparent bg-muted/50 opacity-65")
       )}
     >
       <div className="flex gap-3.5">

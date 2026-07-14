@@ -1,12 +1,14 @@
 import { and, asc, desc, eq, gte } from "drizzle-orm"
+import { randomUUID } from "node:crypto"
 
 import { getDb } from "@/db"
 import {
   dailyPlans,
   episodes,
+  interviewSessions,
+  type StoredInterviewMessage,
   transcriptSegments,
   userLexemes,
-  userProgramProgress,
   users,
 } from "@/db/schema"
 import { completeDailyPlanItem } from "@/server/daily-plan/daily-plan-service"
@@ -47,7 +49,7 @@ async function getInterviewContext(
   }
 
   const planDate = dateInTimezone(now, user.timezone)
-  const [[readyEpisode], [activeEpisode], [todayEpisode]] = await Promise.all([
+  const [[readyEpisode], [todayEpisode]] = await Promise.all([
     db
       .select({ id: episodes.id })
       .from(episodes)
@@ -60,18 +62,7 @@ async function getInterviewContext(
       )
       .limit(1),
     db
-      .select({ episodeId: userProgramProgress.currentEpisodeId })
-      .from(userProgramProgress)
-      .where(
-        and(
-          eq(userProgramProgress.userId, userId),
-          eq(userProgramProgress.currentEpisodeId, episodeId),
-          eq(userProgramProgress.isActive, true)
-        )
-      )
-      .limit(1),
-    db
-      .select({ episodeId: dailyPlans.episodeId })
+      .select({ planId: dailyPlans.id, episodeId: dailyPlans.episodeId })
       .from(dailyPlans)
       .where(
         and(
@@ -83,7 +74,7 @@ async function getInterviewContext(
       .limit(1),
   ])
 
-  if (!readyEpisode || (!activeEpisode && !todayEpisode)) {
+  if (!readyEpisode || !todayEpisode) {
     throw new AppError(
       "Episode is not active for this user",
       404,
@@ -111,6 +102,7 @@ async function getInterviewContext(
     .limit(1_200)
 
   return {
+    dailyPlanId: todayEpisode.planId,
     timezone: user.timezone,
     learnerLevel: user.levelEstimate ?? "A2",
     knownVocabulary: knownVocabulary.map((item) => item.lemma),
@@ -129,7 +121,6 @@ function assertUsableInterviewState(input: {
     input.state.userId !== input.userId ||
     input.state.episodeId !== input.episodeId ||
     input.state.requestDate !== input.requestDate ||
-    input.now.getTime() - input.state.issuedAt > 6 * 60 * 60 * 1000 ||
     input.state.issuedAt > input.now.getTime() + 5 * 60 * 1000
   ) {
     throw new AppError(
@@ -162,9 +153,106 @@ function publicQuestionWords(
   return [...new Set(question.glossary.map((item) => item.word))]
 }
 
+type StoredSession = {
+  sessionToken: string
+  messages: StoredInterviewMessage[]
+  answersCompleted: number
+  completed: boolean
+}
+
+function storedSessionResponse(session: StoredSession) {
+  const lastAssistant = [...session.messages]
+    .reverse()
+    .find((message) => message.role === "assistant")
+  return {
+    message: lastAssistant?.text ?? "",
+    questionWords: lastAssistant?.questionWords ?? [],
+    correction: null,
+    reaction: null,
+    queuedWord: null,
+    completed: session.completed,
+    answersCompleted: session.answersCompleted,
+    questionNumber: session.completed ? null : session.answersCompleted + 1,
+    sessionToken: session.sessionToken,
+    messages: session.messages,
+    restored: true,
+  }
+}
+
+async function findStoredSession(userId: string, dailyPlanId: string) {
+  const [session] = await getDb()
+    .select({
+      sessionToken: interviewSessions.sessionToken,
+      messages: interviewSessions.messages,
+      answersCompleted: interviewSessions.answersCompleted,
+      completed: interviewSessions.completed,
+    })
+    .from(interviewSessions)
+    .where(
+      and(
+        eq(interviewSessions.userId, userId),
+        eq(interviewSessions.dailyPlanId, dailyPlanId)
+      )
+    )
+    .limit(1)
+  return session
+}
+
+async function saveStoredSession(input: {
+  userId: string
+  dailyPlanId: string
+  episodeId: string
+  sessionToken: string
+  messages: StoredInterviewMessage[]
+  answersCompleted: number
+  completed: boolean
+  now: Date
+}) {
+  await getDb()
+    .insert(interviewSessions)
+    .values({
+      userId: input.userId,
+      dailyPlanId: input.dailyPlanId,
+      episodeId: input.episodeId,
+      sessionToken: input.sessionToken,
+      messages: input.messages,
+      answersCompleted: input.answersCompleted,
+      completed: input.completed,
+      updatedAt: input.now,
+    })
+    .onConflictDoUpdate({
+      target: interviewSessions.dailyPlanId,
+      set: {
+        sessionToken: input.sessionToken,
+        messages: input.messages,
+        answersCompleted: input.answersCompleted,
+        completed: input.completed,
+        updatedAt: input.now,
+      },
+    })
+}
+
 export async function startInterview(userId: string, episodeId: string) {
   const now = new Date()
   const context = await getInterviewContext(userId, episodeId, now)
+  const stored = await findStoredSession(userId, context.dailyPlanId)
+  if (stored) {
+    try {
+      const state = verifyInterviewState(stored.sessionToken)
+      assertUsableInterviewState({
+        state,
+        userId,
+        episodeId,
+        requestDate: dateInTimezone(now, context.timezone),
+        now,
+      })
+      return storedSessionResponse(stored)
+    } catch {
+      await getDb()
+        .delete(interviewSessions)
+        .where(eq(interviewSessions.dailyPlanId, context.dailyPlanId))
+    }
+  }
   const { requestDate } = await reserveInterviewRequest({
     userId,
     episodeId,
@@ -190,6 +278,27 @@ export async function startInterview(userId: string, episodeId: string) {
     issuedAt: now.getTime(),
   }
 
+  const sessionToken = signInterviewState(state)
+  const messages: StoredInterviewMessage[] = [
+    {
+      id: randomUUID(),
+      role: "assistant",
+      text: firstQuestion.text,
+      questionWords: publicQuestionWords(firstQuestion),
+      helpToken: sessionToken,
+    },
+  ]
+  await saveStoredSession({
+    userId,
+    dailyPlanId: context.dailyPlanId,
+    episodeId,
+    sessionToken,
+    messages,
+    answersCompleted: 0,
+    completed: false,
+    now,
+  })
+
   return {
     message: firstQuestion.text,
     questionWords: publicQuestionWords(firstQuestion),
@@ -198,7 +307,9 @@ export async function startInterview(userId: string, episodeId: string) {
     completed: false,
     answersCompleted: 0,
     questionNumber: 1,
-    sessionToken: signInterviewState(state),
+    sessionToken,
+    messages,
+    restored: false,
   }
 }
 
@@ -220,6 +331,11 @@ export async function replyToInterview(input: {
     now,
   })
 
+  const stored = await findStoredSession(input.userId, context.dailyPlanId)
+  if (stored && stored.sessionToken !== input.sessionToken) {
+    return storedSessionResponse(stored)
+  }
+
   await reserveInterviewRequest({
     userId: input.userId,
     episodeId: input.episodeId,
@@ -228,6 +344,12 @@ export async function replyToInterview(input: {
   })
 
   const answer = input.answer.trim()
+  const storedMessages = stored?.messages ?? []
+  const userMessage: StoredInterviewMessage = {
+    id: randomUUID(),
+    role: "user",
+    text: answer,
+  }
   if (state.mode === "continuation") {
     const conversation = recentConversation([
       ...state.conversation,
@@ -251,6 +373,40 @@ export async function replyToInterview(input: {
       { role: "assistant" as const, content: assistantContent },
     ])
 
+    const sessionToken = signInterviewState({
+      ...state,
+      conversation: nextConversation,
+      issuedAt: now.getTime(),
+    })
+    const messages: StoredInterviewMessage[] = [
+      ...storedMessages,
+      userMessage,
+      ...(turn.correction
+        ? [
+            {
+              id: randomUUID(),
+              role: "correction" as const,
+              text: turn.correction,
+            },
+          ]
+        : []),
+      {
+        id: randomUUID(),
+        role: "assistant",
+        text: turn.message,
+      },
+    ]
+    await saveStoredSession({
+      userId: input.userId,
+      dailyPlanId: context.dailyPlanId,
+      episodeId: input.episodeId,
+      sessionToken,
+      messages,
+      answersCompleted: 3,
+      completed: true,
+      now,
+    })
+
     return {
       message: turn.message,
       correction: turn.correction,
@@ -260,11 +416,9 @@ export async function replyToInterview(input: {
       answersCompleted: 3,
       questionNumber: null,
       questionWords: [],
-      sessionToken: signInterviewState({
-        ...state,
-        conversation: nextConversation,
-        issuedAt: now.getTime(),
-      }),
+      sessionToken,
+      messages,
+      restored: false,
     }
   }
 
@@ -317,6 +471,57 @@ export async function replyToInterview(input: {
     { role: "assistant" as const, content: assistantContent },
   ]
 
+  const questionWords = completed
+    ? []
+    : publicQuestionWords(state.questions[answersCompleted])
+  const sessionToken = signInterviewState({
+    ...state,
+    mode: completed ? "continuation" : "interview",
+    answersCompleted,
+    conversation: recentConversation(nextConversation),
+    issuedAt: now.getTime(),
+  })
+  const messages: StoredInterviewMessage[] = [
+    ...storedMessages,
+    userMessage,
+    ...(turn.correction
+      ? [
+          {
+            id: randomUUID(),
+            role: "correction" as const,
+            text: turn.correction,
+          },
+        ]
+      : []),
+    ...(turn.reaction
+      ? [
+          {
+            id: randomUUID(),
+            role: "assistant" as const,
+            text: turn.reaction,
+          },
+        ]
+      : []),
+    {
+      id: randomUUID(),
+      role: "assistant",
+      text: message,
+      ...(questionWords.length > 0
+        ? { questionWords, helpToken: sessionToken }
+        : {}),
+    },
+  ]
+  await saveStoredSession({
+    userId: input.userId,
+    dailyPlanId: context.dailyPlanId,
+    episodeId: input.episodeId,
+    sessionToken,
+    messages,
+    answersCompleted,
+    completed,
+    now,
+  })
+
   return {
     message,
     correction: turn.correction,
@@ -325,16 +530,10 @@ export async function replyToInterview(input: {
     completed,
     answersCompleted,
     questionNumber: completed ? null : answersCompleted + 1,
-    questionWords: completed
-      ? []
-      : publicQuestionWords(state.questions[answersCompleted]),
-    sessionToken: signInterviewState({
-      ...state,
-      mode: completed ? "continuation" : "interview",
-      answersCompleted,
-      conversation: recentConversation(nextConversation),
-      issuedAt: now.getTime(),
-    }),
+    questionWords,
+    sessionToken,
+    messages,
+    restored: false,
   }
 }
 

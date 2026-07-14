@@ -148,13 +148,22 @@ async function requestStructured<T>(input: {
   maxTokens: number
 }) {
   const config = env()
+  let repairInstruction: string | undefined
   const body = (strictSchema: boolean) =>
     JSON.stringify({
       model: config.OPENROUTER_INTERVIEW_MODEL,
       session_id: `okey-english-episode-${input.episodeId}-${input.schemaName}`,
       temperature: 0.25,
       max_tokens: input.maxTokens,
-      messages: input.messages,
+      messages: repairInstruction
+        ? [
+            ...input.messages,
+            {
+              role: "system",
+              content: repairInstruction,
+            },
+          ]
+        : input.messages,
       response_format: strictSchema
         ? {
             type: "json_schema",
@@ -199,6 +208,13 @@ async function requestStructured<T>(input: {
             return input.responseSchema.parse(JSON.parse(content))
           } catch (error) {
             lastError = error
+            const details =
+              error instanceof z.ZodError
+                ? JSON.stringify(error.issues)
+                : error instanceof Error
+                  ? error.message
+                  : "Invalid JSON response"
+            repairInstruction = `REPAIR THE PREVIOUS RESPONSE. It failed validation: ${details.slice(0, 1_500)}. Return a complete corrected JSON object. Do not omit required array items or fields.`
           }
         } else {
           lastError = new Error(

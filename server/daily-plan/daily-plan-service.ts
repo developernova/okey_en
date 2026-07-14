@@ -1,10 +1,11 @@
-import { and, asc, eq, gt, isNull, lt } from "drizzle-orm"
+import { and, asc, eq, gt, isNull, lt, ne } from "drizzle-orm"
 
 import { getDb } from "@/db"
 import {
   dailyPlanItems,
   dailyPlans,
   episodes,
+  interviewSessions,
   pendingProgramSwitches,
   programs,
   userProgramProgress,
@@ -51,6 +52,14 @@ export async function getOrCreateDailyPlan(userId: string, now = new Date()) {
       .limit(1)
 
     if (existing) {
+      await tx
+        .delete(interviewSessions)
+        .where(
+          and(
+            eq(interviewSessions.userId, userId),
+            ne(interviewSessions.dailyPlanId, existing.planId)
+          )
+        )
       await tx
         .insert(dailyPlanItems)
         .values(
@@ -269,6 +278,14 @@ export async function getOrCreateDailyPlan(userId: string, now = new Date()) {
       .insert(dailyPlans)
       .values({ userId, planDate, episodeId: current.episodeId })
       .returning({ id: dailyPlans.id })
+    await tx
+      .delete(interviewSessions)
+      .where(
+        and(
+          eq(interviewSessions.userId, userId),
+          ne(interviewSessions.dailyPlanId, plan.id)
+        )
+      )
     await tx.insert(dailyPlanItems).values(
       itemTypes.map((type) => ({
         dailyPlanId: plan.id,

@@ -38,7 +38,7 @@ export function validateInterviewAudio(input: {
     state.userId !== input.userId ||
     state.episodeId !== input.episodeId ||
     (state.mode === "interview" && state.answersCompleted >= 3) ||
-    now.getTime() - state.issuedAt > 6 * 60 * 60 * 1000 ||
+    now.getTime() - state.issuedAt > 30 * 60 * 60 * 1000 ||
     state.issuedAt > now.getTime() + 5 * 60 * 1000
   ) {
     throw new AppError(
