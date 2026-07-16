@@ -112,7 +112,7 @@ function batchUsageLabel(totalTokens: number, costUsd: number) {
     minimumFractionDigits: 4,
     maximumFractionDigits: 6,
   }).format(costUsd)
-  return `LLM: ${tokens} токенов · ${cost}.`
+  return `LLM: ${tokens} токенов · ≈${cost} по стандартному тарифу.`
 }
 
 function durationLabel(seconds: number) {

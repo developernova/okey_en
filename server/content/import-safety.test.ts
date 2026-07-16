@@ -13,10 +13,11 @@ import {
 } from "./import-queue"
 import {
   addImportLlmUsage,
+  estimateOpenAiCostUsd,
   limitExtractionChunks,
   phraseExtractionMaxTokens,
-  RetryableOpenRouterError,
-} from "./openrouter"
+  RetryableOpenAiError,
+} from "./openai"
 import { RetryableYoutubeTranscriptError } from "./youtube-transcript"
 
 describe("content import safety", () => {
@@ -69,7 +70,7 @@ describe("content import safety", () => {
       )
     ).toBe(false)
 
-    const providerFailure = new RetryableOpenRouterError("temporary", {
+    const providerFailure = new RetryableOpenAiError("temporary", {
       cause: new Error("429"),
     })
     expect(retryableImportError(providerFailure)).toBe(providerFailure)
@@ -81,6 +82,24 @@ describe("content import safety", () => {
     expect(phraseExtractionMaxTokens(1)).toBe(400)
     expect(phraseExtractionMaxTokens(15)).toBe(2_640)
     expect(phraseExtractionMaxTokens(100)).toBe(4_000)
+  })
+
+  it("estimates the standard gpt-5.4-mini price including cached input", () => {
+    expect(
+      estimateOpenAiCostUsd({
+        model: "gpt-5.4-mini-2026-03-17",
+        promptTokens: 1_000,
+        cachedPromptTokens: 400,
+        completionTokens: 100,
+      })
+    ).toBeCloseTo(0.00093)
+    expect(
+      estimateOpenAiCostUsd({
+        model: "custom-model",
+        promptTokens: 1_000,
+        completionTokens: 100,
+      })
+    ).toBe(0)
   })
 
   it("bounds transcript chunks while retaining whole-episode coverage", () => {

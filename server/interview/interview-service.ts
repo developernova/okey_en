@@ -16,7 +16,7 @@ import {
   generateContinuationTurn,
   generateInterviewAnalysis,
   generateInterviewQuestions,
-} from "@/server/interview/openrouter"
+} from "@/server/interview/openai"
 import { findQuestionGloss } from "@/server/interview/question"
 import {
   dateInTimezone,

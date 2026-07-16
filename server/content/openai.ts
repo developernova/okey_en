@@ -10,11 +10,11 @@ import {
 import { normalizePhrase } from "@/server/content/text"
 import { AppError } from "@/server/shared/errors"
 import {
-  describeOpenRouterError,
-  isOpenRouterInvalidArgument,
-} from "@/server/content/openrouter-error"
+  describeOpenAiError,
+  isOpenAiSchemaUnsupported,
+} from "@/server/content/openai-error"
 
-const openRouterResponseSchema = z.object({
+const openAiResponseSchema = z.object({
   id: z.string(),
   model: z.string(),
   choices: z.array(
@@ -28,7 +28,9 @@ const openRouterResponseSchema = z.object({
       prompt_tokens: z.number().optional(),
       completion_tokens: z.number().optional(),
       total_tokens: z.number().optional(),
-      cost: z.number().nonnegative().nullish(),
+      prompt_tokens_details: z
+        .object({ cached_tokens: z.number().nonnegative().optional() })
+        .optional(),
     })
     .optional(),
 })
@@ -49,25 +51,25 @@ export const EMPTY_IMPORT_LLM_USAGE: ImportLlmUsage = {
 
 export const MAX_EXTRACTION_CHUNKS = 8
 
-export class RetryableOpenRouterError extends AppError {
+export class RetryableOpenAiError extends AppError {
   readonly queueBlocking = true
 
   constructor(message: string, options: { cause: unknown }) {
     super(
       message,
       502,
-      "OPENROUTER_RETRY_EXHAUSTED",
+      "OPENAI_RETRY_EXHAUSTED",
       options.cause instanceof Error ? options.cause.message : options.cause
     )
-    this.name = "RetryableOpenRouterError"
+    this.name = "RetryableOpenAiError"
     this.cause = options.cause
   }
 }
 
-export function isRetryableOpenRouterError(
+export function isRetryableOpenAiError(
   error: unknown
-): error is RetryableOpenRouterError {
-  return error instanceof RetryableOpenRouterError
+): error is RetryableOpenAiError {
+  return error instanceof RetryableOpenAiError
 }
 
 export function addImportLlmUsage(
@@ -84,6 +86,27 @@ export function addImportLlmUsage(
 
 export function phraseExtractionMaxTokens(requestedCount: number) {
   return Math.min(4_000, 240 + Math.max(1, requestedCount) * 160)
+}
+
+export function estimateOpenAiCostUsd(input: {
+  model: string
+  promptTokens: number
+  cachedPromptTokens?: number
+  completionTokens: number
+}) {
+  if (!/^gpt-5\.4-mini(?:-|$)/.test(input.model)) return 0
+
+  const cachedPromptTokens = Math.min(
+    input.promptTokens,
+    Math.max(0, input.cachedPromptTokens ?? 0)
+  )
+  const uncachedPromptTokens = input.promptTokens - cachedPromptTokens
+  return (
+    (uncachedPromptTokens * 0.75 +
+      cachedPromptTokens * 0.075 +
+      input.completionTokens * 4.5) /
+    1_000_000
+  )
 }
 
 const phraseJsonSchema = {
@@ -222,9 +245,9 @@ async function extractChunk(input: {
 
   const requestBody = (strictSchema: boolean) =>
     JSON.stringify({
-      model: config.OPENROUTER_MODEL,
-      temperature: 0.2,
-      max_tokens: phraseExtractionMaxTokens(input.requestedCount),
+      model: config.OPENAI_TEXT_MODEL,
+      reasoning_effort: "none",
+      max_completion_tokens: phraseExtractionMaxTokens(input.requestedCount),
       messages,
       response_format: strictSchema
         ? {
@@ -236,7 +259,6 @@ async function extractChunk(input: {
             },
           }
         : { type: "json_object" },
-      provider: { require_parameters: true },
     })
 
   let response: Response | undefined
@@ -245,14 +267,11 @@ async function extractChunk(input: {
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${config.OPENROUTER_API_KEY}`,
+          Authorization: `Bearer ${config.OPENAI_API_KEY}`,
           "Content-Type": "application/json",
-          "HTTP-Referer": config.OPENROUTER_APP_URL,
-          "X-OpenRouter-Title": config.OPENROUTER_APP_NAME,
-          "X-OpenRouter-Metadata": "enabled",
         },
         body: requestBody(strictSchema),
         signal: AbortSignal.timeout(180_000),
@@ -260,13 +279,10 @@ async function extractChunk(input: {
 
       if (response.ok) break
       const details = await response.text()
-      if (
-        strictSchema &&
-        isOpenRouterInvalidArgument(response.status, details)
-      ) {
+      if (strictSchema && isOpenAiSchemaUnsupported(response.status, details)) {
         strictSchema = false
         lastError = new Error(
-          "OpenRouter provider rejected the strict JSON schema; retrying in JSON mode"
+          "The selected OpenAI model rejected the strict JSON schema; retrying in JSON mode"
         )
         continue
       }
@@ -277,14 +293,14 @@ async function extractChunk(input: {
         response.status >= 500
       if (!retryableStatus) {
         throw new AppError(
-          describeOpenRouterError(response.status, details),
+          describeOpenAiError(response.status, details),
           502,
-          "OPENROUTER_ERROR",
+          "OPENAI_ERROR",
           details
         )
       }
       lastError = new Error(
-        `OpenRouter temporary error ${response.status}: ${details}`
+        `OpenAI temporary error ${response.status}: ${details}`
       )
     } catch (error) {
       if (error instanceof AppError) throw error
@@ -297,32 +313,32 @@ async function extractChunk(input: {
   }
 
   if (!response?.ok) {
-    throw new RetryableOpenRouterError(
-      "OpenRouter did not complete after retries",
-      { cause: lastError }
-    )
+    throw new RetryableOpenAiError("OpenAI did not complete after retries", {
+      cause: lastError,
+    })
   }
 
-  const completion = openRouterResponseSchema.parse(await response.json())
+  const completion = openAiResponseSchema.parse(await response.json())
   const reportedUsage = completion.usage
+  const promptTokens = reportedUsage?.prompt_tokens ?? 0
+  const completionTokens = reportedUsage?.completion_tokens ?? 0
   const usage = {
-    promptTokens: reportedUsage?.prompt_tokens ?? 0,
-    completionTokens: reportedUsage?.completion_tokens ?? 0,
-    totalTokens:
-      reportedUsage?.total_tokens ??
-      (reportedUsage?.prompt_tokens ?? 0) +
-        (reportedUsage?.completion_tokens ?? 0),
-    costUsd: reportedUsage?.cost ?? 0,
+    promptTokens,
+    completionTokens,
+    totalTokens: reportedUsage?.total_tokens ?? promptTokens + completionTokens,
+    costUsd: estimateOpenAiCostUsd({
+      model: completion.model,
+      promptTokens,
+      cachedPromptTokens:
+        reportedUsage?.prompt_tokens_details?.cached_tokens ?? 0,
+      completionTokens,
+    }),
   } satisfies ImportLlmUsage
   await input.onUsage?.(usage)
 
   const content = completion.choices[0]?.message.content
   if (!content) {
-    throw new AppError(
-      "OpenRouter returned no content",
-      502,
-      "EMPTY_LLM_RESPONSE"
-    )
+    throw new AppError("OpenAI returned no content", 502, "EMPTY_LLM_RESPONSE")
   }
 
   return {

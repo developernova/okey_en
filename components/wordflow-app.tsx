@@ -1900,6 +1900,12 @@ export function WordflowApp() {
               <p className="mt-3 text-xs text-destructive">{reminderError}</p>
             )}
           </section>
+
+          <p className="mt-6 px-2 text-center text-[11px] leading-4 text-muted-foreground/70">
+            Тексты учебных диалогов и ответов обрабатываются OpenAI и могут
+            использоваться для улучшения моделей. Данные профиля Telegram и сами
+            голосовые записи туда не передаются.
+          </p>
         </div>
       </PhoneShell>
     )

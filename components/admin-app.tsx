@@ -134,7 +134,7 @@ function llmUsageLabel(job: IngestionJob) {
     minimumFractionDigits: 4,
     maximumFractionDigits: 6,
   }).format(job.costUsd)
-  return `${tokens} токенов · ${cost}`
+  return `${tokens} токенов · ≈${cost}`
 }
 
 function statusLabel(status: Status) {

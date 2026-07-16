@@ -15,9 +15,9 @@ import {
   addImportLlmUsage,
   EMPTY_IMPORT_LLM_USAGE,
   extractPhrases,
-  isRetryableOpenRouterError,
+  isRetryableOpenAiError,
   type ImportLlmUsage,
-} from "@/server/content/openrouter"
+} from "@/server/content/openai"
 import {
   countLexemes,
   normalizePhrase,
@@ -37,7 +37,7 @@ export const MAX_IMPORT_ATTEMPTS = 5
 export function retryableImportError(error: unknown) {
   if (
     isRetryableYoutubeTranscriptError(error) ||
-    isRetryableOpenRouterError(error)
+    isRetryableOpenAiError(error)
   ) {
     return error
   }
@@ -87,7 +87,7 @@ export async function importEpisode(
       .values({
         youtubeId: youtubeIdForJob,
         status: "processing",
-        model: env().OPENROUTER_MODEL,
+        model: env().OPENAI_TEXT_MODEL,
         promptVersion: IMPORT_PROMPT_VERSION,
         attemptCount: 1,
         startedAt: new Date(),
@@ -103,6 +103,10 @@ export async function importEpisode(
     }
     jobId = job.id
   } else {
+    await db
+      .update(ingestionJobs)
+      .set({ model: env().OPENAI_TEXT_MODEL })
+      .where(eq(ingestionJobs.id, jobId))
     const [existingJob] = await db
       .select({
         metadata: ingestionJobs.metadata,

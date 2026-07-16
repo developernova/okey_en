@@ -141,7 +141,7 @@ export async function enqueueImportBatch(inputs: ImportEpisodeInput[]) {
         return {
           youtubeId: videoId,
           status: "pending" as const,
-          model: env().OPENROUTER_MODEL,
+          model: env().OPENAI_TEXT_MODEL,
           promptVersion: IMPORT_PROMPT_VERSION,
           metadata: {
             batchId,

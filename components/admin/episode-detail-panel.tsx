@@ -110,7 +110,7 @@ function llmUsageLabel(job: EpisodeDetail["jobs"][number]) {
     minimumFractionDigits: 4,
     maximumFractionDigits: 6,
   }).format(job.costUsd)
-  return `${tokens} · ${cost}`
+  return `${tokens} · ≈${cost}`
 }
 
 export function EpisodeDetailPanel({

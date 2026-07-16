@@ -2,32 +2,29 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/server/config/env", () => ({
   env: () => ({
-    OPENROUTER_MODEL: "test/model",
-    OPENROUTER_API_KEY: "test-key",
-    OPENROUTER_APP_URL: "https://example.test",
-    OPENROUTER_APP_NAME: "Test",
+    OPENAI_TEXT_MODEL: "gpt-5.4-mini",
+    OPENAI_API_KEY: "text-key",
   }),
 }))
 
-import { extractPhrases } from "./openrouter"
+import { extractPhrases } from "./openai"
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe("OpenRouter import accounting", () => {
-  it("reports usage before validating model JSON and sends max_tokens", async () => {
+describe("OpenAI import accounting", () => {
+  it("reports usage before validating model JSON and sends a direct OpenAI request", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
           id: "generation-1",
-          model: "test/model",
+          model: "gpt-5.4-mini",
           choices: [{ message: { content: "not valid JSON" } }],
           usage: {
             prompt_tokens: 120,
             completion_tokens: 30,
             total_tokens: 150,
-            cost: 0.0042,
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
@@ -56,11 +53,25 @@ describe("OpenRouter import accounting", () => {
       promptTokens: 120,
       completionTokens: 30,
       totalTokens: 150,
-      costUsd: 0.0042,
+      costUsd: 0.000225,
     })
     const request = JSON.parse(
       String(fetchMock.mock.calls[0]?.[1]?.body)
     ) as Record<string, unknown>
-    expect(request.max_tokens).toBe(2_800)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://api.openai.com/v1/chat/completions"
+    )
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers)
+    expect(headers.get("Authorization")).toBe("Bearer text-key")
+    expect(headers.get("HTTP-Referer")).toBeNull()
+    expect(headers.get("X-OpenRouter-Title")).toBeNull()
+    expect(request).toMatchObject({
+      model: "gpt-5.4-mini",
+      reasoning_effort: "none",
+      max_completion_tokens: 2_800,
+    })
+    expect(request).not.toHaveProperty("max_tokens")
+    expect(request).not.toHaveProperty("provider")
+    expect(request).not.toHaveProperty("session_id")
   })
 })

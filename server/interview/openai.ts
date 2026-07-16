@@ -10,9 +10,9 @@ import {
 } from "@/server/interview/prompt"
 import { interviewQuestionSchema } from "@/server/interview/question"
 import {
-  describeOpenRouterError,
-  isOpenRouterInvalidArgument,
-} from "@/server/content/openrouter-error"
+  describeOpenAiError,
+  isOpenAiSchemaUnsupported,
+} from "@/server/content/openai-error"
 import { AppError } from "@/server/shared/errors"
 
 const questionPlanSchema = z.preprocess(
@@ -151,10 +151,9 @@ async function requestStructured<T>(input: {
   let repairInstruction: string | undefined
   const body = (strictSchema: boolean) =>
     JSON.stringify({
-      model: config.OPENROUTER_INTERVIEW_MODEL,
-      session_id: `okey-english-episode-${input.episodeId}-${input.schemaName}`,
-      temperature: 0.25,
-      max_tokens: input.maxTokens,
+      model: config.OPENAI_TEXT_MODEL,
+      reasoning_effort: "none",
+      max_completion_tokens: input.maxTokens,
       messages: repairInstruction
         ? [
             ...input.messages,
@@ -174,7 +173,6 @@ async function requestStructured<T>(input: {
             },
           }
         : { type: "json_object" },
-      provider: { require_parameters: true },
     })
 
   let lastError: unknown
@@ -182,14 +180,12 @@ async function requestStructured<T>(input: {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const response = await fetch(
-        "https://openrouter.ai/api/v1/chat/completions",
+        "https://api.openai.com/v1/chat/completions",
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${config.OPENROUTER_API_KEY}`,
+            Authorization: `Bearer ${config.OPENAI_API_KEY}`,
             "Content-Type": "application/json",
-            "HTTP-Referer": config.OPENROUTER_APP_URL,
-            "X-OpenRouter-Title": config.OPENROUTER_APP_NAME,
           },
           body: body(strictSchema),
           signal: AbortSignal.timeout(60_000),
@@ -218,30 +214,30 @@ async function requestStructured<T>(input: {
           }
         } else {
           lastError = new Error(
-            `OpenRouter returned empty content (${choice?.finish_reason ?? "unknown"})`
+            `OpenAI returned empty content (${choice?.finish_reason ?? "unknown"})`
           )
         }
       } else {
         const details = await response.text()
         if (
           strictSchema &&
-          isOpenRouterInvalidArgument(response.status, details)
+          isOpenAiSchemaUnsupported(response.status, details)
         ) {
           strictSchema = false
           lastError = new Error(
-            "OpenRouter provider rejected the strict JSON schema; retrying in JSON mode"
+            "The selected OpenAI model rejected the strict JSON schema; retrying in JSON mode"
           )
           continue
         }
         if (response.status < 500 && response.status !== 429) {
           throw new AppError(
-            describeOpenRouterError(response.status, details),
+            describeOpenAiError(response.status, details),
             502,
-            "OPENROUTER_INTERVIEW_ERROR",
+            "OPENAI_INTERVIEW_ERROR",
             details
           )
         }
-        lastError = new Error(`OpenRouter temporary error ${response.status}`)
+        lastError = new Error(`OpenAI temporary error ${response.status}`)
       }
     } catch (error) {
       if (error instanceof AppError) throw error
@@ -252,7 +248,7 @@ async function requestStructured<T>(input: {
   throw new AppError(
     "Интервью сейчас недоступно. Попробуй ещё раз.",
     502,
-    "OPENROUTER_INTERVIEW_UNAVAILABLE",
+    "OPENAI_INTERVIEW_UNAVAILABLE",
     lastError instanceof Error ? lastError.message : undefined
   )
 }

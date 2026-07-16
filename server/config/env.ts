@@ -15,12 +15,9 @@ const optionalSecret = z.preprocess(
 
 const serverEnvSchema = z.object({
   DATABASE_URL: z.url(),
+  OPENAI_API_KEY: z.string().min(1),
+  OPENAI_TEXT_MODEL: z.string().min(1).default("gpt-5.4-mini"),
   OPENROUTER_API_KEY: z.string().min(1),
-  OPENROUTER_MODEL: z.string().min(1).default("google/gemini-2.5-flash"),
-  OPENROUTER_INTERVIEW_MODEL: z
-    .string()
-    .min(1)
-    .default("deepseek/deepseek-v4-flash"),
   OPENROUTER_APP_URL: z.url().default("http://localhost:3000"),
   OPENROUTER_APP_NAME: z.string().min(1).default("Okey English"),
   OPENROUTER_TRANSCRIPTION_MODEL: z

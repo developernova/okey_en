@@ -4,7 +4,7 @@
 
 ```text
 app/api/*                    HTTP transport only
-server/content/*             YouTube and OpenRouter ingestion
+server/content/*             YouTube and direct OpenAI ingestion
 server/admin/*               content catalogue administration
 server/daily-plan/*          daily progress and episode advancement
 server/reminders/*           reminder preference and Telegram delivery
@@ -23,12 +23,12 @@ YouTube URL
   → youtube-transcript
   → normalized timestamped segments
   → bounded transcript chunks
-  → OpenRouter strict JSON schema
+  → OpenAI strict JSON schema
   → transcript verification + confidence filter + deduplication
   → transactional upsert
 ```
 
-The admin playlist flow uses the official YouTube Data API v3 through `googleapis` for public playlist metadata, ordering, thumbnails, duration, and caption status. It follows `nextPageToken` and reads every item in pages of up to 50. It does not bypass the canonical importer: each selected item runs strictly sequentially, with a 1.5-second pause between videos, through transcript retrieval, OpenRouter extraction, transcript verification, and the same transactional upsert.
+The admin playlist flow uses the official YouTube Data API v3 through `googleapis` for public playlist metadata, ordering, thumbnails, duration, and caption status. It follows `nextPageToken` and reads every item in pages of up to 50. It does not bypass the canonical importer: each selected item runs strictly sequentially, with a 1.5-second pause between videos, through transcript retrieval, direct OpenAI extraction, transcript verification, and the same transactional upsert.
 
 Re-importing an episode updates canonical content while preserving phrase IDs whenever the normalized phrase is unchanged. Existing user cards and review logs therefore remain valid. Removed phrases become inactive instead of being deleted.
 
