@@ -5,13 +5,14 @@ import { requireAdmin } from "@/server/auth/user-context"
 import {
   enqueueImportBatch,
   getImportBatch,
+  MAX_IMPORT_BATCH_SIZE,
   startImportWorker,
 } from "@/server/content/import-queue"
 import { importEpisodeSchema } from "@/server/content/types"
 import { jsonError } from "@/server/shared/http"
 
 const batchSchema = z.object({
-  items: z.array(importEpisodeSchema).min(1).max(5_000),
+  items: z.array(importEpisodeSchema).min(1).max(MAX_IMPORT_BATCH_SIZE),
 })
 
 export async function POST(request: Request) {

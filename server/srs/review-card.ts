@@ -5,15 +5,31 @@ import { phrases, reviewLogs, userCards, userLexemes, users } from "@/db/schema"
 import { AppError } from "@/server/shared/errors"
 import { reviewFsrsCard, type ReviewRating } from "@/server/srs/fsrs"
 
+export function assertReviewOrder(lastReview: Date | null, answeredAt: Date) {
+  if (lastReview && answeredAt.getTime() < lastReview.getTime()) {
+    throw new AppError(
+      "Review is older than the latest saved review",
+      409,
+      "OUT_OF_ORDER_REVIEW",
+      {
+        answeredAt: answeredAt.toISOString(),
+        lastReview: lastReview.toISOString(),
+      }
+    )
+  }
+}
+
 export async function reviewCard(input: {
   userId: string
   cardId: string
   rating: ReviewRating
   clientEventId?: string
   now?: Date
+  activityAt?: Date
 }) {
   const db = getDb()
   const now = input.now ?? new Date()
+  const activityAt = input.activityAt ?? new Date()
 
   return db.transaction(async (tx) => {
     if (input.clientEventId) {
@@ -71,6 +87,8 @@ export async function reviewCard(input: {
       throw new AppError("Card not found", 404, "CARD_NOT_FOUND")
     }
 
+    assertReviewOrder(stored.lastReview, now)
+
     const result = reviewFsrsCard(stored, input.rating, now)
 
     await tx
@@ -127,7 +145,10 @@ export async function reviewCard(input: {
 
     await tx
       .update(users)
-      .set({ lastActiveAt: now, updatedAt: now })
+      .set({
+        lastActiveAt: sql`greatest(coalesce(${users.lastActiveAt}, ${activityAt}), ${activityAt})`,
+        updatedAt: activityAt,
+      })
       .where(eq(users.id, input.userId))
 
     return {

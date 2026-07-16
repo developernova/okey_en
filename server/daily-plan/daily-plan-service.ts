@@ -13,16 +13,20 @@ import {
 } from "@/db/schema"
 import { dateInTimezone } from "@/server/interview/rate-limit"
 import { AppError } from "@/server/shared/errors"
+import { calendarDayGap } from "@/server/shared/timezone"
 
 export type DailyPlanItemType = "watch" | "review" | "retell"
 const itemTypes: DailyPlanItemType[] = ["watch", "review", "retell"]
 
-export async function getOrCreateDailyPlan(userId: string, now = new Date()) {
+export async function snapshotDailyReturnGap(userId: string, now = new Date()) {
   const db = getDb()
 
   return db.transaction(async (tx) => {
     const [user] = await tx
-      .select({ timezone: users.timezone })
+      .select({
+        timezone: users.timezone,
+        lastActiveAt: users.lastActiveAt,
+      })
       .from(users)
       .where(eq(users.id, userId))
       .for("update")
@@ -31,25 +35,99 @@ export async function getOrCreateDailyPlan(userId: string, now = new Date()) {
 
     const planDate = dateInTimezone(now, user.timezone)
     const [existing] = await tx
-      .select({
-        planId: dailyPlans.id,
-        status: dailyPlans.status,
-        completedAt: dailyPlans.completedAt,
-        episodeId: episodes.id,
-        youtubeId: episodes.youtubeId,
-        episodeTitle: episodes.title,
-        durationSeconds: episodes.durationSeconds,
-        sequenceNumber: episodes.sequenceNumber,
-        programId: programs.id,
-        programTitle: programs.title,
-      })
+      .select({ returnGapDays: dailyPlans.returnGapDays })
       .from(dailyPlans)
-      .innerJoin(episodes, eq(episodes.id, dailyPlans.episodeId))
-      .innerJoin(programs, eq(programs.id, episodes.programId))
       .where(
         and(eq(dailyPlans.userId, userId), eq(dailyPlans.planDate, planDate))
       )
       .limit(1)
+    if (existing) return existing.returnGapDays
+
+    const returnGapDays = calendarDayGap(user.lastActiveAt, now, user.timezone)
+    const [plan] = await tx
+      .insert(dailyPlans)
+      .values({
+        userId,
+        planDate,
+        returnGapDays,
+      })
+      .returning({ id: dailyPlans.id })
+    await tx
+      .delete(interviewSessions)
+      .where(
+        and(
+          eq(interviewSessions.userId, userId),
+          ne(interviewSessions.dailyPlanId, plan.id)
+        )
+      )
+    return returnGapDays
+  })
+}
+
+export async function getOrCreateDailyPlan(userId: string, now = new Date()) {
+  const db = getDb()
+
+  return db.transaction(async (tx) => {
+    const [user] = await tx
+      .select({
+        timezone: users.timezone,
+        lastActiveAt: users.lastActiveAt,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .for("update")
+      .limit(1)
+    if (!user) throw new AppError("User not found", 404, "USER_NOT_FOUND")
+
+    const planDate = dateInTimezone(now, user.timezone)
+    const [storedPlan] = await tx
+      .select({
+        planId: dailyPlans.id,
+        status: dailyPlans.status,
+        completedAt: dailyPlans.completedAt,
+        returnGapDays: dailyPlans.returnGapDays,
+        episodeId: dailyPlans.episodeId,
+      })
+      .from(dailyPlans)
+      .where(
+        and(eq(dailyPlans.userId, userId), eq(dailyPlans.planDate, planDate))
+      )
+      .limit(1)
+
+    const [storedEpisode] = storedPlan?.episodeId
+      ? await tx
+          .select({
+            episodeId: episodes.id,
+            youtubeId: episodes.youtubeId,
+            episodeTitle: episodes.title,
+            durationSeconds: episodes.durationSeconds,
+            sequenceNumber: episodes.sequenceNumber,
+            programId: programs.id,
+            programTitle: programs.title,
+          })
+          .from(episodes)
+          .innerJoin(programs, eq(programs.id, episodes.programId))
+          .where(eq(episodes.id, storedPlan.episodeId))
+          .limit(1)
+      : []
+    const existing =
+      storedPlan && storedEpisode
+        ? {
+            planId: storedPlan.planId,
+            status: storedPlan.status,
+            completedAt: storedPlan.completedAt,
+            returnGapDays: storedPlan.returnGapDays,
+            ...storedEpisode,
+          }
+        : null
+
+    if (storedPlan?.episodeId && !existing) {
+      throw new AppError(
+        "Daily plan episode not found",
+        409,
+        "DAILY_PLAN_EPISODE_NOT_FOUND"
+      )
+    }
 
     if (existing) {
       await tx
@@ -84,6 +162,9 @@ export async function getOrCreateDailyPlan(userId: string, now = new Date()) {
           .map((item) => item.type),
       }
     }
+
+    /* A review replay can create a plan shell before content is available.
+       From this point on we attach today's episode to that frozen snapshot. */
 
     const [pendingSwitch] = await tx
       .select({ programId: pendingProgramSwitches.programId })
@@ -274,10 +355,24 @@ export async function getOrCreateDailyPlan(userId: string, now = new Date()) {
       }
     }
 
-    const [plan] = await tx
-      .insert(dailyPlans)
-      .values({ userId, planDate, episodeId: current.episodeId })
-      .returning({ id: dailyPlans.id })
+    const returnGapDays =
+      storedPlan?.returnGapDays ??
+      calendarDayGap(user.lastActiveAt, now, user.timezone)
+    const [plan] = storedPlan
+      ? await tx
+          .update(dailyPlans)
+          .set({ episodeId: current.episodeId })
+          .where(eq(dailyPlans.id, storedPlan.planId))
+          .returning({ id: dailyPlans.id })
+      : await tx
+          .insert(dailyPlans)
+          .values({
+            userId,
+            planDate,
+            episodeId: current.episodeId,
+            returnGapDays,
+          })
+          .returning({ id: dailyPlans.id })
     await tx
       .delete(interviewSessions)
       .where(
@@ -286,19 +381,25 @@ export async function getOrCreateDailyPlan(userId: string, now = new Date()) {
           ne(interviewSessions.dailyPlanId, plan.id)
         )
       )
-    await tx.insert(dailyPlanItems).values(
-      itemTypes.map((type) => ({
-        dailyPlanId: plan.id,
-        type,
-      }))
-    )
+    await tx
+      .insert(dailyPlanItems)
+      .values(
+        itemTypes.map((type) => ({
+          dailyPlanId: plan.id,
+          type,
+        }))
+      )
+      .onConflictDoNothing({
+        target: [dailyPlanItems.dailyPlanId, dailyPlanItems.type],
+      })
 
     return {
       planId: plan.id,
       planDate,
-      status: "not_started" as const,
-      completedAt: null,
+      status: storedPlan?.status ?? ("not_started" as const),
+      completedAt: storedPlan?.completedAt ?? null,
       completedItems: [],
+      returnGapDays,
       timezone: user.timezone,
       ...current,
     }

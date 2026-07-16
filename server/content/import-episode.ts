@@ -11,17 +11,64 @@ import {
 } from "@/db/schema"
 import { env } from "@/server/config/env"
 import { cefrRange } from "@/server/content/cefr"
-import { extractPhrases } from "@/server/content/openrouter"
+import {
+  addImportLlmUsage,
+  EMPTY_IMPORT_LLM_USAGE,
+  extractPhrases,
+  isRetryableOpenRouterError,
+  type ImportLlmUsage,
+} from "@/server/content/openrouter"
 import {
   countLexemes,
   normalizePhrase,
   transcriptDurationSeconds,
 } from "@/server/content/text"
 import type { ImportEpisodeInput } from "@/server/content/types"
-import { getYoutubeTranscript } from "@/server/content/youtube-transcript"
+import {
+  getYoutubeTranscript,
+  extractYoutubeId,
+  isRetryableYoutubeTranscriptError,
+} from "@/server/content/youtube-transcript"
 import { AppError, toErrorMessage } from "@/server/shared/errors"
 
 export const IMPORT_PROMPT_VERSION = "episode-phrases-v3-lexical-units"
+export const MAX_IMPORT_ATTEMPTS = 5
+
+export function retryableImportError(error: unknown) {
+  if (
+    isRetryableYoutubeTranscriptError(error) ||
+    isRetryableOpenRouterError(error)
+  ) {
+    return error
+  }
+  return null
+}
+
+export function importRetryDelayMs(
+  attemptCount: number,
+  queueBlocking: boolean,
+  random = Math.random
+) {
+  const base = queueBlocking ? 10 * 60_000 : 30_000
+  const exponential = Math.min(
+    base * 2 ** Math.max(0, attemptCount - 1),
+    6 * 60 * 60_000
+  )
+  const jitter = 0.8 + random() * 0.4
+  return Math.round(exponential * jitter)
+}
+
+export function shouldRetryImport(
+  error: unknown,
+  attemptCount: number,
+  isQueuedJob: boolean
+) {
+  return (
+    isQueuedJob &&
+    retryableImportError(error) !== null &&
+    attemptCount < MAX_IMPORT_ATTEMPTS
+  )
+}
 
 export async function importEpisode(
   input: ImportEpisodeInput,
@@ -30,8 +77,11 @@ export async function importEpisode(
   const db = getDb()
   let jobId = options.existingJobId
   let jobMetadata: Record<string, unknown> = {}
+  let jobAttemptCount = 1
+  let usage: ImportLlmUsage = EMPTY_IMPORT_LLM_USAGE
   if (!jobId) {
-    const youtubeIdForJob = input.youtubeUrl.slice(0, 200)
+    const youtubeIdForJob =
+      extractYoutubeId(input.youtubeUrl) || input.youtubeUrl.slice(0, 200)
     const [job] = await db
       .insert(ingestionJobs)
       .values({
@@ -39,28 +89,66 @@ export async function importEpisode(
         status: "processing",
         model: env().OPENROUTER_MODEL,
         promptVersion: IMPORT_PROMPT_VERSION,
+        attemptCount: 1,
         startedAt: new Date(),
       })
+      .onConflictDoNothing()
       .returning({ id: ingestionJobs.id })
+    if (!job) {
+      throw new AppError(
+        "This video is already queued for import",
+        409,
+        "IMPORT_ALREADY_QUEUED"
+      )
+    }
     jobId = job.id
   } else {
     const [existingJob] = await db
-      .select({ metadata: ingestionJobs.metadata })
+      .select({
+        metadata: ingestionJobs.metadata,
+        attemptCount: ingestionJobs.attemptCount,
+        promptTokens: ingestionJobs.promptTokens,
+        completionTokens: ingestionJobs.completionTokens,
+        totalTokens: ingestionJobs.totalTokens,
+        costUsd: ingestionJobs.costUsd,
+      })
       .from(ingestionJobs)
       .where(eq(ingestionJobs.id, jobId))
       .limit(1)
     jobMetadata = existingJob?.metadata ?? {}
+    jobAttemptCount = existingJob?.attemptCount ?? 1
+    usage = existingJob
+      ? {
+          promptTokens: existingJob.promptTokens,
+          completionTokens: existingJob.completionTokens,
+          totalTokens: existingJob.totalTokens,
+          costUsd: existingJob.costUsd,
+        }
+      : EMPTY_IMPORT_LLM_USAGE
   }
 
   try {
-    const { youtubeId, segments } = await getYoutubeTranscript(
+    const { youtubeId, language, segments } = await getYoutubeTranscript(
       input.youtubeUrl,
       input.transcriptLanguage
     )
-    const extracted = await extractPhrases({
+    const extraction = await extractPhrases({
       segments,
       maxPhrases: input.maxPhrases,
+      onUsage: async (chunkUsage) => {
+        usage = addImportLlmUsage(usage, chunkUsage)
+        await db
+          .update(ingestionJobs)
+          .set({
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            totalTokens: usage.totalTokens,
+            costUsd: usage.costUsd,
+          })
+          .where(eq(ingestionJobs.id, jobId))
+      },
     })
+    const extracted = extraction.phrases
 
     if (extracted.length < 3) {
       throw new AppError(
@@ -96,7 +184,7 @@ export async function importEpisode(
           title: input.title,
           sequenceNumber: input.sequenceNumber,
           durationSeconds,
-          transcriptLanguage: input.transcriptLanguage,
+          transcriptLanguage: language,
           ingestionStatus: "processing",
         })
         .onConflictDoUpdate({
@@ -106,7 +194,7 @@ export async function importEpisode(
             title: input.title,
             sequenceNumber: input.sequenceNumber,
             durationSeconds,
-            transcriptLanguage: input.transcriptLanguage,
+            transcriptLanguage: language,
             ingestionStatus: "processing",
             updatedAt: new Date(),
           },
@@ -217,6 +305,7 @@ export async function importEpisode(
         segmentCount: segments.length,
         phraseCount: extracted.length,
         lexemeCount: lexemeCounts.length,
+        transcriptLanguage: language,
         programLevelMin: programRange?.min ?? input.program.levelMin,
         programLevelMax: programRange?.max ?? input.program.levelMax,
       }
@@ -228,23 +317,67 @@ export async function importEpisode(
         episodeId: result.episodeId,
         youtubeId: result.youtubeId,
         status: "ready",
+        attemptCount: jobAttemptCount,
+        nextAttemptAt: null,
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        totalTokens: usage.totalTokens,
+        costUsd: usage.costUsd,
         finishedAt: new Date(),
-        metadata: { ...jobMetadata, ...result },
+        metadata: { ...jobMetadata, ...result, usage },
       })
       .where(eq(ingestionJobs.id, jobId))
 
     return { jobId, ...result }
   } catch (error) {
-    await db
-      .update(ingestionJobs)
-      .set({
-        status: "failed",
-        error: toErrorMessage(error).slice(0, 5_000),
-        finishedAt: new Date(),
-      })
-      .where(
-        and(eq(ingestionJobs.id, jobId), eq(ingestionJobs.status, "processing"))
+    const errorMessage = toErrorMessage(error).slice(0, 5_000)
+    const canRetry = shouldRetryImport(
+      error,
+      jobAttemptCount,
+      Boolean(options.existingJobId)
+    )
+
+    const retryableError = retryableImportError(error)
+    if (canRetry && retryableError) {
+      const nextAttemptAt = new Date(
+        Date.now() +
+          importRetryDelayMs(jobAttemptCount, retryableError.queueBlocking)
       )
+      await db
+        .update(ingestionJobs)
+        .set({
+          status: "pending",
+          error: errorMessage,
+          nextAttemptAt,
+          startedAt: null,
+          finishedAt: null,
+        })
+        .where(
+          and(
+            eq(ingestionJobs.id, jobId),
+            eq(ingestionJobs.status, "processing")
+          )
+        )
+    } else {
+      await db
+        .update(ingestionJobs)
+        .set({
+          status: "failed",
+          error: errorMessage,
+          nextAttemptAt: null,
+          promptTokens: usage.promptTokens,
+          completionTokens: usage.completionTokens,
+          totalTokens: usage.totalTokens,
+          costUsd: usage.costUsd,
+          finishedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(ingestionJobs.id, jobId),
+            eq(ingestionJobs.status, "processing")
+          )
+        )
+    }
     throw error
   }
 }

@@ -1,19 +1,33 @@
 import { randomUUID } from "node:crypto"
 
-import { and, asc, eq, lt, sql } from "drizzle-orm"
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm"
 
 import { getDb } from "@/db"
-import { ingestionJobs } from "@/db/schema"
+import { episodes, ingestionJobs } from "@/db/schema"
 import { env } from "@/server/config/env"
 import {
   IMPORT_PROMPT_VERSION,
   importEpisode,
+  MAX_IMPORT_ATTEMPTS,
+  retryableImportError,
 } from "@/server/content/import-episode"
 import {
   importEpisodeSchema,
   type ImportEpisodeInput,
 } from "@/server/content/types"
 import { extractYoutubeId } from "@/server/content/youtube-transcript"
+import { AppError } from "@/server/shared/errors"
 
 type QueueMetadata = {
   batchId: string
@@ -24,6 +38,46 @@ type QueueMetadata = {
 
 const workerGlobal = globalThis as typeof globalThis & {
   okeyEnglishImportWorker?: Promise<void>
+  okeyEnglishImportWorkerTimer?: ReturnType<typeof setTimeout>
+  okeyEnglishImportWorkerTimerAt?: number
+}
+
+export const MAX_IMPORT_BATCH_SIZE = 500
+
+export function uniqueImportInputs(inputs: ImportEpisodeInput[]) {
+  const uniqueInputs = new Map<
+    string,
+    { input: ImportEpisodeInput; position: number }
+  >()
+
+  for (const [position, input] of inputs.entries()) {
+    const videoId = extractYoutubeId(input.youtubeUrl)
+    if (!videoId) {
+      throw new AppError(
+        "Invalid YouTube URL or video id",
+        400,
+        "INVALID_YOUTUBE_URL"
+      )
+    }
+    if (!uniqueInputs.has(videoId)) {
+      uniqueInputs.set(videoId, { input, position })
+    }
+  }
+
+  return uniqueInputs
+}
+
+export function availableImportInputs(
+  inputs: ReturnType<typeof uniqueImportInputs>,
+  unavailableIds: ReadonlySet<string>
+) {
+  return [...inputs.entries()].filter(
+    ([videoId]) => !unavailableIds.has(videoId)
+  )
+}
+
+export function shouldStopImportDrain(error: unknown) {
+  return retryableImportError(error)?.queueBlocking === true
 }
 
 function queueMetadata(value: Record<string, unknown>): QueueMetadata | null {
@@ -47,13 +101,45 @@ function queueMetadata(value: Record<string, unknown>): QueueMetadata | null {
 export async function enqueueImportBatch(inputs: ImportEpisodeInput[]) {
   const db = getDb()
   const batchId = randomUUID()
+  const uniqueInputs = uniqueImportInputs(inputs)
+
+  const videoIds = [...uniqueInputs.keys()]
+  const [storedEpisodes, activeJobs] = await Promise.all([
+    db
+      .select({ youtubeId: episodes.youtubeId })
+      .from(episodes)
+      .where(inArray(episodes.youtubeId, videoIds)),
+    db
+      .select({ youtubeId: ingestionJobs.youtubeId })
+      .from(ingestionJobs)
+      .where(
+        and(
+          inArray(ingestionJobs.youtubeId, videoIds),
+          inArray(ingestionJobs.status, ["pending", "processing"])
+        )
+      ),
+  ])
+  const unavailableIds = new Set([
+    ...storedEpisodes.map((episode) => episode.youtubeId),
+    ...activeJobs.map((job) => job.youtubeId),
+  ])
+  const queuedInputs = availableImportInputs(uniqueInputs, unavailableIds)
+
+  if (queuedInputs.length === 0) {
+    return {
+      batchId,
+      queued: 0,
+      skipped: inputs.length,
+      skippedVideoIds: [...uniqueInputs.keys()],
+    }
+  }
+
   const rows = await db
     .insert(ingestionJobs)
     .values(
-      inputs.map((input, position) => {
-        const videoId = extractYoutubeId(input.youtubeUrl)
+      queuedInputs.map(([videoId, { input, position }]) => {
         return {
-          youtubeId: videoId || input.youtubeUrl.slice(0, 200),
+          youtubeId: videoId,
           status: "pending" as const,
           model: env().OPENROUTER_MODEL,
           promptVersion: IMPORT_PROMPT_VERSION,
@@ -66,9 +152,17 @@ export async function enqueueImportBatch(inputs: ImportEpisodeInput[]) {
         }
       })
     )
-    .returning({ id: ingestionJobs.id })
+    .onConflictDoNothing()
+    .returning({ id: ingestionJobs.id, youtubeId: ingestionJobs.youtubeId })
 
-  return { batchId, queued: rows.length }
+  const queuedIds = new Set(rows.map((row) => row.youtubeId))
+
+  return {
+    batchId,
+    queued: rows.length,
+    skipped: inputs.length - rows.length,
+    skippedVideoIds: videoIds.filter((videoId) => !queuedIds.has(videoId)),
+  }
 }
 
 async function claimNextImport() {
@@ -76,17 +170,43 @@ async function claimNextImport() {
 
   while (true) {
     const [candidate] = await db
-      .select({ id: ingestionJobs.id, metadata: ingestionJobs.metadata })
+      .select({
+        id: ingestionJobs.id,
+        metadata: ingestionJobs.metadata,
+        attemptCount: ingestionJobs.attemptCount,
+      })
       .from(ingestionJobs)
       .where(
         and(
           eq(ingestionJobs.status, "pending"),
-          sql`${ingestionJobs.metadata} ? 'importInput'`
+          sql`${ingestionJobs.metadata} ? 'importInput'`,
+          or(
+            isNull(ingestionJobs.nextAttemptAt),
+            lte(ingestionJobs.nextAttemptAt, new Date())
+          )
         )
       )
       .orderBy(asc(ingestionJobs.createdAt))
       .limit(1)
     if (!candidate) return null
+
+    if (candidate.attemptCount >= MAX_IMPORT_ATTEMPTS) {
+      await db
+        .update(ingestionJobs)
+        .set({
+          status: "failed",
+          error: "Import stopped after the maximum number of attempts",
+          nextAttemptAt: null,
+          finishedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(ingestionJobs.id, candidate.id),
+            eq(ingestionJobs.status, "pending")
+          )
+        )
+      continue
+    }
 
     const metadata = queueMetadata(candidate.metadata)
     if (!metadata) {
@@ -103,11 +223,18 @@ async function claimNextImport() {
 
     const [claimed] = await db
       .update(ingestionJobs)
-      .set({ status: "processing", startedAt: new Date(), error: null })
+      .set({
+        status: "processing",
+        startedAt: new Date(),
+        nextAttemptAt: null,
+        error: null,
+        attemptCount: sql`${ingestionJobs.attemptCount} + 1`,
+      })
       .where(
         and(
           eq(ingestionJobs.id, candidate.id),
-          eq(ingestionJobs.status, "pending")
+          eq(ingestionJobs.status, "pending"),
+          lt(ingestionJobs.attemptCount, MAX_IMPORT_ATTEMPTS)
         )
       )
       .returning({ id: ingestionJobs.id })
@@ -115,14 +242,73 @@ async function claimNextImport() {
   }
 }
 
+async function scheduleNextPendingImport() {
+  const [next] = await getDb()
+    .select({ nextAttemptAt: ingestionJobs.nextAttemptAt })
+    .from(ingestionJobs)
+    .where(
+      and(
+        eq(ingestionJobs.status, "pending"),
+        isNotNull(ingestionJobs.nextAttemptAt),
+        sql`${ingestionJobs.metadata} ? 'importInput'`
+      )
+    )
+    .orderBy(asc(ingestionJobs.nextAttemptAt))
+    .limit(1)
+  if (!next?.nextAttemptAt) return
+
+  const runAt = next.nextAttemptAt.getTime()
+  if (
+    workerGlobal.okeyEnglishImportWorkerTimer &&
+    (workerGlobal.okeyEnglishImportWorkerTimerAt ?? Infinity) <= runAt
+  ) {
+    return
+  }
+  if (workerGlobal.okeyEnglishImportWorkerTimer) {
+    clearTimeout(workerGlobal.okeyEnglishImportWorkerTimer)
+  }
+
+  const delay = Math.max(250, Math.min(runAt - Date.now(), 2_147_483_647))
+  workerGlobal.okeyEnglishImportWorkerTimerAt = runAt
+  workerGlobal.okeyEnglishImportWorkerTimer = setTimeout(() => {
+    workerGlobal.okeyEnglishImportWorkerTimer = undefined
+    workerGlobal.okeyEnglishImportWorkerTimerAt = undefined
+    void startImportWorker()
+  }, delay)
+  workerGlobal.okeyEnglishImportWorkerTimer.unref?.()
+}
+
+async function pausePendingImportsAfterRateLimit() {
+  const resumeAt = new Date(Date.now() + 10 * 60_000)
+  await getDb()
+    .update(ingestionJobs)
+    .set({
+      nextAttemptAt: sql`greatest(coalesce(${ingestionJobs.nextAttemptAt}, ${resumeAt}), ${resumeAt})`,
+    })
+    .where(
+      and(
+        eq(ingestionJobs.status, "pending"),
+        sql`${ingestionJobs.metadata} ? 'importInput'`
+      )
+    )
+}
+
 async function drainImportQueue() {
   while (true) {
     const job = await claimNextImport()
-    if (!job) return
+    if (!job) {
+      await scheduleNextPendingImport()
+      return
+    }
     try {
       await importEpisode(job.input, { existingJobId: job.id })
     } catch (error) {
       console.error("Background episode import failed", error)
+      if (shouldStopImportDrain(error)) {
+        await pausePendingImportsAfterRateLimit()
+        await scheduleNextPendingImport()
+        return
+      }
     }
 
     // Keep YouTube transcript requests strictly sequential and gentle.
@@ -132,13 +318,31 @@ async function drainImportQueue() {
 
 async function recoverStaleImports() {
   const staleBefore = new Date(Date.now() - 60 * 60 * 1_000)
-  await getDb()
+  const db = getDb()
+  await db
+    .update(ingestionJobs)
+    .set({
+      status: "failed",
+      error: "Import worker stopped after the maximum number of attempts",
+      nextAttemptAt: null,
+      finishedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(ingestionJobs.status, "processing"),
+        lt(ingestionJobs.startedAt, staleBefore),
+        sql`${ingestionJobs.attemptCount} >= ${MAX_IMPORT_ATTEMPTS}`,
+        sql`${ingestionJobs.metadata} ? 'importInput'`
+      )
+    )
+  await db
     .update(ingestionJobs)
     .set({ status: "pending", startedAt: null, error: null })
     .where(
       and(
         eq(ingestionJobs.status, "processing"),
         lt(ingestionJobs.startedAt, staleBefore),
+        lt(ingestionJobs.attemptCount, MAX_IMPORT_ATTEMPTS),
         sql`${ingestionJobs.metadata} ? 'importInput'`
       )
     )
@@ -147,6 +351,11 @@ async function recoverStaleImports() {
 export function startImportWorker() {
   if (workerGlobal.okeyEnglishImportWorker) {
     return workerGlobal.okeyEnglishImportWorker
+  }
+  if (workerGlobal.okeyEnglishImportWorkerTimer) {
+    clearTimeout(workerGlobal.okeyEnglishImportWorkerTimer)
+    workerGlobal.okeyEnglishImportWorkerTimer = undefined
+    workerGlobal.okeyEnglishImportWorkerTimerAt = undefined
   }
 
   const work = recoverStaleImports()
@@ -169,6 +378,10 @@ export async function getImportBatch(batchId: string) {
       id: ingestionJobs.id,
       status: ingestionJobs.status,
       error: ingestionJobs.error,
+      attemptCount: ingestionJobs.attemptCount,
+      nextAttemptAt: ingestionJobs.nextAttemptAt,
+      totalTokens: ingestionJobs.totalTokens,
+      costUsd: ingestionJobs.costUsd,
       metadata: ingestionJobs.metadata,
     })
     .from(ingestionJobs)
@@ -185,6 +398,10 @@ export async function getImportBatch(batchId: string) {
         position: metadata.position,
         status: row.status,
         error: row.error,
+        attemptCount: row.attemptCount,
+        nextAttemptAt: row.nextAttemptAt,
+        totalTokens: row.totalTokens,
+        costUsd: row.costUsd,
       }
     })
     .filter((job): job is NonNullable<typeof job> => job !== null)
@@ -194,6 +411,8 @@ export async function getImportBatch(batchId: string) {
   const processing = jobs.filter((job) => job.status === "processing").length
   const ready = jobs.filter((job) => job.status === "ready").length
   const failed = jobs.filter((job) => job.status === "failed").length
+  const totalTokens = jobs.reduce((sum, job) => sum + job.totalTokens, 0)
+  const costUsd = jobs.reduce((sum, job) => sum + job.costUsd, 0)
 
   return {
     batchId,
@@ -203,6 +422,8 @@ export async function getImportBatch(batchId: string) {
     processing,
     ready,
     failed,
+    totalTokens,
+    costUsd,
     jobs,
   }
 }

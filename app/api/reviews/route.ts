@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { requireUserId } from "@/server/auth/user-context"
+import { snapshotDailyReturnGap } from "@/server/daily-plan/daily-plan-service"
 import { jsonError } from "@/server/shared/http"
 import { reviewCard } from "@/server/srs/review-card"
 
@@ -24,12 +25,16 @@ export async function POST(request: Request) {
       answeredAt.getTime() <= newestAccepted
         ? answeredAt
         : serverNow
+    // Offline reviews can replay before the client loads /api/today. Freeze the
+    // return-day gap on today's plan before reviewCard updates lastActiveAt.
+    await snapshotDailyReturnGap(userId, serverNow)
     const result = await reviewCard({
       userId,
       cardId: input.cardId,
       rating: input.rating,
       clientEventId: input.eventId,
       now: reviewTime,
+      activityAt: serverNow,
     })
     return Response.json({ data: result })
   } catch (error) {

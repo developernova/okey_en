@@ -22,8 +22,14 @@ import { HugeiconsIcon } from "@hugeicons/react"
 
 import { Button } from "@/components/ui/button"
 import {
+  InterviewTranscriptionRequestError,
+  isEmptyInterviewTranscriptionError,
+} from "@/lib/interview-transcription-error"
+import {
   enqueuePendingReview,
   flushPendingReviews,
+  getPendingReviews,
+  normalizeReviewQueueIndex,
 } from "@/lib/pending-reviews"
 import {
   getTelegramCloudFlag,
@@ -140,6 +146,39 @@ type InterviewWordHelpDto = {
 }
 
 type VoicePhase = "idle" | "recording" | "transcribing"
+
+type PendingVoiceRecording = {
+  audio: Blob
+  mimeType: string
+  run: number
+  episodeId: string
+  sessionToken: string
+}
+
+type PlanItemType = "watch" | "review"
+type PlanItemResult = {
+  status: TodayDto["plan"]["status"]
+  completedItems: TodayDto["plan"]["completedItems"]
+}
+
+async function requestPlanItem(
+  episodeId: string,
+  type: PlanItemType
+): Promise<PlanItemResult> {
+  const response = await telegramFetch("/api/daily-plan/items", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ episodeId, type }),
+  })
+  const payload = (await response.json()) as {
+    data?: PlanItemResult
+    error?: { message?: string }
+  }
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.error?.message ?? "Не удалось сохранить шаг")
+  }
+  return payload.data
+}
 
 const questions = [
   {
@@ -372,11 +411,25 @@ async function requestInterviewTranscription(input: {
     method: "POST",
     body,
   })
-  const payload = (await response.json()) as {
+  const payload = (await response.json().catch(() => ({}))) as {
     data?: { text?: string }
+    error?: { code?: string; message?: string }
+  }
+  if (!response.ok) {
+    throw new InterviewTranscriptionRequestError(
+      payload.error?.message ?? "Voice input unavailable",
+      response.status,
+      payload.error?.code
+    )
   }
   const text = payload.data?.text?.trim()
-  if (!response.ok || !text) throw new Error("Voice input unavailable")
+  if (!text) {
+    throw new InterviewTranscriptionRequestError(
+      "Empty transcription",
+      422,
+      "EMPTY_TRANSCRIPTION"
+    )
+  }
   return text
 }
 
@@ -641,17 +694,25 @@ export function WordflowApp() {
   const voiceAvailable = voiceSupported && !voiceDisabled
   const [voicePhase, setVoicePhase] = React.useState<VoicePhase>("idle")
   const [recordingSeconds, setRecordingSeconds] = React.useState(0)
+  const [pendingVoiceRecording, setPendingVoiceRecording] =
+    React.useState<PendingVoiceRecording | null>(null)
+  const [voiceTranscriptionError, setVoiceTranscriptionError] = React.useState<
+    string | null
+  >(null)
   const [homeScreenPrompted, setHomeScreenPrompted] = React.useState(() =>
     typeof window === "undefined"
       ? false
       : window.localStorage.getItem("okey-english:home-screen-prompted") === "1"
   )
-  const reviewSyncInProgress = React.useRef(false)
+  const reviewSyncInFlight = React.useRef<Promise<void> | null>(null)
+  const reviewSyncRequested = React.useRef(false)
   const interviewRun = React.useRef(0)
   const mediaStream = React.useRef<MediaStream | null>(null)
   const mediaRecorder = React.useRef<MediaRecorder | null>(null)
   const discardRecording = React.useRef(false)
   const voiceLifecycle = React.useRef(0)
+  const voiceRecordingInProgress = React.useRef(false)
+  const voiceTranscriptionInProgress = React.useRef(false)
   const interviewBottom = React.useRef<HTMLDivElement | null>(null)
 
   const releaseMicrophone = React.useCallback(() => {
@@ -664,6 +725,8 @@ export function WordflowApp() {
     }
     mediaStream.current?.getTracks().forEach((track) => track.stop())
     mediaStream.current = null
+    voiceRecordingInProgress.current = false
+    voiceTranscriptionInProgress.current = false
     setVoicePhase("idle")
     setRecordingSeconds(0)
   }, [])
@@ -678,6 +741,8 @@ export function WordflowApp() {
     setInterviewError(null)
     setInterviewAnswers(0)
     setInterviewCompleted(false)
+    setPendingVoiceRecording(null)
+    setVoiceTranscriptionError(null)
   }, [releaseMicrophone])
 
   React.useEffect(() => {
@@ -711,16 +776,26 @@ export function WordflowApp() {
     return () => window.cancelAnimationFrame(frame)
   }, [interviewLoading, interviewMessages, screen, voicePhase])
 
-  const syncPendingReviews = React.useCallback(async () => {
-    if (reviewSyncInProgress.current) return
-    reviewSyncInProgress.current = true
-    try {
-      await flushPendingReviews()
-    } catch {
-      // The queue remains in localStorage and is retried when connectivity returns.
-    } finally {
-      reviewSyncInProgress.current = false
-    }
+  const syncPendingReviews = React.useCallback((requestRerun = true) => {
+    if (requestRerun) reviewSyncRequested.current = true
+    if (reviewSyncInFlight.current) return reviewSyncInFlight.current
+
+    const work = (async () => {
+      try {
+        do {
+          reviewSyncRequested.current = false
+          try {
+            await flushPendingReviews()
+          } catch {
+            // The queue remains in localStorage and is retried when connectivity returns.
+          }
+        } while (reviewSyncRequested.current)
+      } finally {
+        reviewSyncInFlight.current = null
+      }
+    })()
+    reviewSyncInFlight.current = work
+    return work
   }, [])
 
   const loadToday = React.useCallback(async () => {
@@ -735,14 +810,83 @@ export function WordflowApp() {
       if (!response.ok || !payload.data) {
         throw new Error(payload.error?.message ?? "Не удалось загрузить план")
       }
-      setTodayData(payload.data)
-      setVideoDone(payload.data.plan.completedItems.includes("watch"))
-      setCardsDone(payload.data.plan.completedItems.includes("review"))
-      setRetellDone(payload.data.plan.completedItems.includes("retell"))
-      if (payload.data.queue.cards.length > 0) {
-        setSessionCardTotal(
-          (current) => current || payload.data!.queue.cards.length
-        )
+      const pendingCardIds = new Set(
+        getPendingReviews().map((review) => review.cardId)
+      )
+      const pendingCards = payload.data.queue.cards.filter((card) =>
+        pendingCardIds.has(card.id)
+      )
+      const visibleCards = payload.data.queue.cards.filter(
+        (card) => !pendingCardIds.has(card.id)
+      )
+      const reviewCoveredByPending =
+        visibleCards.length === 0 &&
+        pendingCards.length > 0 &&
+        !payload.data.plan.completedItems.includes("review")
+      const completedItems = reviewCoveredByPending
+        ? ([
+            ...payload.data.plan.completedItems,
+            "review",
+          ] as TodayDto["plan"]["completedItems"])
+        : payload.data.plan.completedItems
+      const today = {
+        ...payload.data,
+        plan: reviewCoveredByPending
+          ? {
+              ...payload.data.plan,
+              status:
+                completedItems.includes("watch") &&
+                completedItems.includes("review") &&
+                completedItems.includes("retell")
+                  ? ("complete" as const)
+                  : ("supporting" as const),
+              completedItems,
+            }
+          : payload.data.plan,
+        queue: {
+          ...payload.data.queue,
+          cards: visibleCards,
+          shownReviews: Math.max(
+            0,
+            payload.data.queue.shownReviews -
+              pendingCards.filter((card) => card.reps > 0).length
+          ),
+          estimatedMinutes:
+            visibleCards.length === 0
+              ? 0
+              : Math.max(1, Math.ceil(visibleCards.length * 0.4)),
+        },
+      }
+      setTodayData(today)
+      setCardIndex(0)
+      setRevealed(false)
+      setVideoDone(completedItems.includes("watch"))
+      setCardsDone(completedItems.includes("review"))
+      setRetellDone(completedItems.includes("retell"))
+      const knownSessionCards = visibleCards.length + pendingCards.length
+      if (knownSessionCards > 0) {
+        setSessionCardTotal((current) => current || knownSessionCards)
+      }
+      if (reviewCoveredByPending) {
+        void requestPlanItem(payload.data.episode.id, "review")
+          .then((saved) => {
+            setTodayData((current) =>
+              current
+                ? {
+                    ...current,
+                    plan: {
+                      ...current.plan,
+                      status: saved.status,
+                      completedItems: saved.completedItems,
+                    },
+                  }
+                : current
+            )
+          })
+          .catch(() => {
+            // Keep the locally completed state. The idempotent save is retried
+            // on the next plan load, while pending reviews remain protected.
+          })
       }
     } catch (error) {
       setTodayError(
@@ -753,20 +897,21 @@ export function WordflowApp() {
     }
   }, [])
 
-  const openToday = React.useCallback(() => {
+  const openToday = React.useCallback(async () => {
     setScreen("today")
-    void loadToday()
-  }, [loadToday])
+    await syncPendingReviews(false)
+    await loadToday()
+  }, [loadToday, syncPendingReviews])
 
   React.useEffect(() => {
     let cancelled = false
-    const resume = () => {
-      if (!cancelled) openToday()
+    const resume = async () => {
+      if (!cancelled) await openToday()
     }
     if (
       window.localStorage.getItem("okey-english:onboarding-complete") === "1"
     ) {
-      const timeout = window.setTimeout(resume, 0)
+      const timeout = window.setTimeout(() => void resume(), 0)
       return () => {
         cancelled = true
         window.clearTimeout(timeout)
@@ -775,12 +920,12 @@ export function WordflowApp() {
     getTelegramCloudFlag("onboarding_complete", (value) => {
       if (value !== "1" || cancelled) return
       window.localStorage.setItem("okey-english:onboarding-complete", "1")
-      resume()
+      void resume()
     })
     return () => {
       cancelled = true
     }
-  }, [openToday])
+  }, [openToday, syncPendingReviews])
 
   const openSettings = React.useCallback(async () => {
     setScreen("settings")
@@ -956,7 +1101,12 @@ export function WordflowApp() {
   }
 
   function rateCard(rating: Rating) {
-    const card = todayData?.queue.cards[cardIndex]
+    const reviewQueue = todayData?.queue.cards ?? []
+    const activeCardIndex = normalizeReviewQueueIndex(
+      cardIndex,
+      reviewQueue.length
+    )
+    const card = reviewQueue[activeCardIndex]
     if (!card) return
 
     enqueuePendingReview({
@@ -970,7 +1120,7 @@ export function WordflowApp() {
     else haptics?.impactOccurred(rating === "hard" ? "medium" : "light")
     void syncPendingReviews()
 
-    if (cardIndex === todayData.queue.cards.length - 1) {
+    if (activeCardIndex === reviewQueue.length - 1) {
       setCardsDone(true)
       void persistPlanItem("review")
       setScreen(videoDone && retellDone ? "complete" : "today")
@@ -978,7 +1128,7 @@ export function WordflowApp() {
       setRevealed(false)
       return
     }
-    setCardIndex((value) => value + 1)
+    setCardIndex(activeCardIndex + 1)
     setRevealed(false)
   }
 
@@ -1037,6 +1187,8 @@ export function WordflowApp() {
       return
     }
 
+    setPendingVoiceRecording(null)
+    setVoiceTranscriptionError(null)
     const run = interviewRun.current
     const stepWasCompleted = interviewCompleted
     const messageId = retryMessageId ?? crypto.randomUUID()
@@ -1131,7 +1283,52 @@ export function WordflowApp() {
 
   function disableVoiceInput() {
     releaseMicrophone()
+    setPendingVoiceRecording(null)
+    setVoiceTranscriptionError(null)
     setVoiceDisabled(true)
+  }
+
+  async function transcribeVoiceRecording(input: PendingVoiceRecording) {
+    if (
+      input.run !== interviewRun.current ||
+      voiceTranscriptionInProgress.current
+    ) {
+      return
+    }
+    voiceTranscriptionInProgress.current = true
+
+    setPendingVoiceRecording(input)
+    setVoiceTranscriptionError(null)
+    setVoicePhase("transcribing")
+    try {
+      const text = await requestInterviewTranscription({
+        episodeId: input.episodeId,
+        sessionToken: input.sessionToken,
+        audio: input.audio,
+        fileName: recordingFileName(input.mimeType),
+      })
+      if (input.run !== interviewRun.current) return
+
+      setPendingVoiceRecording(null)
+      setVoiceTranscriptionError(null)
+      setInterviewDraft(text)
+      setVoicePhase("idle")
+      setRecordingSeconds(0)
+      await sendInterviewAnswer(text)
+    } catch (error) {
+      if (input.run !== interviewRun.current) return
+      if (isEmptyInterviewTranscriptionError(error)) {
+        disableVoiceInput()
+        return
+      }
+      setVoicePhase("idle")
+      setRecordingSeconds(0)
+      setVoiceTranscriptionError("Не удалось распознать запись")
+    } finally {
+      if (input.run === interviewRun.current) {
+        voiceTranscriptionInProgress.current = false
+      }
+    }
   }
 
   async function finishVoiceRecording(input: {
@@ -1148,25 +1345,13 @@ export function WordflowApp() {
       return
     }
 
-    setVoicePhase("transcribing")
-    let text: string
-    try {
-      text = await requestInterviewTranscription({
-        episodeId: input.episodeId,
-        sessionToken: input.sessionToken,
-        audio,
-        fileName: recordingFileName(input.mimeType),
-      })
-    } catch {
-      disableVoiceInput()
-      return
-    }
-    if (input.run !== interviewRun.current) return
-
-    setInterviewDraft(text)
-    setVoicePhase("idle")
-    setRecordingSeconds(0)
-    await sendInterviewAnswer(text)
+    await transcribeVoiceRecording({
+      audio,
+      mimeType: input.mimeType,
+      run: input.run,
+      episodeId: input.episodeId,
+      sessionToken: input.sessionToken,
+    })
   }
 
   async function startVoiceRecording() {
@@ -1177,12 +1362,17 @@ export function WordflowApp() {
       !episodeId ||
       !sessionToken ||
       interviewLoading ||
-      voicePhase !== "idle"
+      voicePhase !== "idle" ||
+      voiceRecordingInProgress.current ||
+      voiceTranscriptionInProgress.current
     ) {
       return
     }
 
+    voiceRecordingInProgress.current = true
     discardRecording.current = false
+    setPendingVoiceRecording(null)
+    setVoiceTranscriptionError(null)
     const lifecycle = voiceLifecycle.current
     try {
       let stream = mediaStream.current
@@ -1214,6 +1404,9 @@ export function WordflowApp() {
       }
       recorder.onstop = () => {
         mediaRecorder.current = null
+        if (lifecycle === voiceLifecycle.current) {
+          voiceRecordingInProgress.current = false
+        }
         void finishVoiceRecording({
           chunks,
           mimeType: recorder.mimeType || mimeType || "audio/webm",
@@ -1227,7 +1420,7 @@ export function WordflowApp() {
       setRecordingSeconds(0)
       setVoicePhase("recording")
     } catch {
-      disableVoiceInput()
+      if (lifecycle === voiceLifecycle.current) disableVoiceInput()
     }
   }
 
@@ -1256,33 +1449,19 @@ export function WordflowApp() {
     window.open(url, "_blank", "noopener,noreferrer")
   }
 
-  async function persistPlanItem(type: "watch" | "review") {
+  async function persistPlanItem(type: PlanItemType) {
     const episodeId = todayData?.episode.id
     if (!episodeId) return
     try {
-      const response = await telegramFetch("/api/daily-plan/items", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ episodeId, type }),
-      })
-      const payload = (await response.json()) as {
-        data?: {
-          status: TodayDto["plan"]["status"]
-          completedItems: TodayDto["plan"]["completedItems"]
-        }
-        error?: { message?: string }
-      }
-      if (!response.ok || !payload.data) {
-        throw new Error(payload.error?.message ?? "Не удалось сохранить шаг")
-      }
+      const result = await requestPlanItem(episodeId, type)
       setTodayData((today) =>
         today
           ? {
               ...today,
               plan: {
                 ...today.plan,
-                status: payload.data!.status,
-                completedItems: payload.data!.completedItems,
+                status: result.status,
+                completedItems: result.completedItems,
               },
             }
           : today
@@ -1945,6 +2124,28 @@ export function WordflowApp() {
                   <Icon icon={ArrowRight01Icon} />
                 </Button>
               </div>
+              {voiceTranscriptionError &&
+                pendingVoiceRecording &&
+                voiceAvailable && (
+                  <div
+                    className="mt-2 flex min-h-8 items-center justify-between gap-3 px-1 text-xs text-muted-foreground"
+                    aria-live="polite"
+                  >
+                    <span>{voiceTranscriptionError}</span>
+                    <button
+                      type="button"
+                      className="shrink-0 font-semibold text-foreground disabled:opacity-50"
+                      disabled={
+                        interviewLoading || voicePhase === "transcribing"
+                      }
+                      onClick={() =>
+                        void transcribeVoiceRecording(pendingVoiceRecording)
+                      }
+                    >
+                      Повторить
+                    </button>
+                  </div>
+                )}
               {interviewCompleted && (
                 <Button
                   type="button"
@@ -2025,7 +2226,11 @@ export function WordflowApp() {
 
   if (screen === "review") {
     const reviewQueue = todayData?.queue.cards ?? []
-    const card = reviewQueue[cardIndex]
+    const activeCardIndex = normalizeReviewQueueIndex(
+      cardIndex,
+      reviewQueue.length
+    )
+    const card = reviewQueue[activeCardIndex]
 
     if (!card) {
       return (
@@ -2047,7 +2252,7 @@ export function WordflowApp() {
       <PhoneShell className="flex flex-col">
         <TopBar
           onBack={() => setScreen("today")}
-          title={`${cardIndex + 1} из ${reviewQueue.length}`}
+          title={`${activeCardIndex + 1} из ${reviewQueue.length}`}
           right={
             <span className="text-xs text-muted-foreground">
               ~{todayData?.queue.estimatedMinutes ?? 1} мин
@@ -2059,7 +2264,7 @@ export function WordflowApp() {
             <div
               className="h-full rounded-full bg-foreground transition-all"
               style={{
-                width: `${((cardIndex + 1) / reviewQueue.length) * 100}%`,
+                width: `${((activeCardIndex + 1) / reviewQueue.length) * 100}%`,
               }}
             />
           </div>
@@ -2353,7 +2558,7 @@ export function WordflowApp() {
             <p>{todayError}</p>
             <button
               className="mt-2 font-semibold"
-              onClick={() => void loadToday()}
+              onClick={() => void openToday()}
             >
               Повторить
             </button>

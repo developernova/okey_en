@@ -4,11 +4,7 @@ import { getDb } from "@/db"
 import { phrases, userCards, users } from "@/db/schema"
 import { learningCefrLevels } from "@/server/content/cefr"
 import { newFsrsCard } from "@/server/srs/fsrs"
-
-function daysSince(value: Date | null, now: Date) {
-  if (!value) return 0
-  return Math.max(0, Math.floor((now.getTime() - value.getTime()) / 86_400_000))
-}
+import { dailyNewCardLimit, dailyQueuePolicy } from "@/server/srs/queue-policy"
 
 function availableToUserCondition() {
   return or(eq(phrases.isActive, true), eq(userCards.isPersonal, true))
@@ -67,27 +63,29 @@ export async function ensureEpisodeCards(input: {
 export async function buildDailyQueue(input: {
   userId: string
   episodeId?: string
+  returnGapDays: number
   now?: Date
 }) {
   const db = getDb()
   const now = input.now ?? new Date()
 
   if (input.episodeId) {
-    await ensureEpisodeCards({ ...input, episodeId: input.episodeId, now })
+    await ensureEpisodeCards({
+      userId: input.userId,
+      episodeId: input.episodeId,
+      now,
+    })
   }
 
   const [user] = await db
-    .select({
-      lastActiveAt: users.lastActiveAt,
-      levelEstimate: users.levelEstimate,
-    })
+    .select({ levelEstimate: users.levelEstimate })
     .from(users)
     .where(eq(users.id, input.userId))
     .limit(1)
 
-  const gapDays = daysSince(user?.lastActiveAt ?? null, now)
-  const isReturnDay = gapDays >= 2
-  const reviewLimit = isReturnDay ? 25 : 100
+  const { gapDays, isReturnDay, reviewLimit, mode } = dailyQueuePolicy(
+    input.returnGapDays
+  )
 
   const [reviewCount] = await db
     .select({ value: count() })
@@ -131,38 +129,47 @@ export async function buildDailyQueue(input: {
     .limit(reviewLimit)
 
   const priorityCutoff = new Date(1)
-  const newCards = await db
-    .select({
-      id: userCards.id,
-      due: userCards.due,
-      reps: userCards.reps,
-      phrase: phrases.phrase,
-      translationRu: phrases.translationRu,
-      contextSentence: phrases.contextSentence,
-      offsetMs: phrases.offsetMs,
-    })
-    .from(userCards)
-    .innerJoin(phrases, eq(phrases.id, userCards.phraseId))
-    .where(
-      and(
-        eq(userCards.userId, input.userId),
-        eq(userCards.isSuspended, false),
-        availableToUserCondition(),
-        pauseNewCards
-          ? lte(userCards.due, priorityCutoff)
-          : or(
-              inArray(phrases.cefr, targetLevels),
-              lte(userCards.due, priorityCutoff)
-            ),
-        eq(userCards.reps, 0),
-        lte(userCards.due, now)
-      )
-    )
-    .orderBy(asc(userCards.due), asc(phrases.offsetMs))
-    .limit(pauseNewCards ? 5 : 15)
+  const newCardLimit = dailyNewCardLimit({
+    isReturnDay,
+    pauseNewCards,
+    reviewLimit,
+    shownReviews: reviews.length,
+  })
+  const newCards =
+    newCardLimit === 0
+      ? []
+      : await db
+          .select({
+            id: userCards.id,
+            due: userCards.due,
+            reps: userCards.reps,
+            phrase: phrases.phrase,
+            translationRu: phrases.translationRu,
+            contextSentence: phrases.contextSentence,
+            offsetMs: phrases.offsetMs,
+          })
+          .from(userCards)
+          .innerJoin(phrases, eq(phrases.id, userCards.phraseId))
+          .where(
+            and(
+              eq(userCards.userId, input.userId),
+              eq(userCards.isSuspended, false),
+              availableToUserCondition(),
+              pauseNewCards
+                ? lte(userCards.due, priorityCutoff)
+                : or(
+                    inArray(phrases.cefr, targetLevels),
+                    lte(userCards.due, priorityCutoff)
+                  ),
+              eq(userCards.reps, 0),
+              lte(userCards.due, now)
+            )
+          )
+          .orderBy(asc(userCards.due), asc(phrases.offsetMs))
+          .limit(newCardLimit)
 
   return {
-    mode: isReturnDay ? (gapDays >= 14 ? "soft_restart" : "return") : "normal",
+    mode,
     gapDays,
     totalDueReviews: reviewCount.value,
     shownReviews: reviews.length,

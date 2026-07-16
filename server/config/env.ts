@@ -30,7 +30,6 @@ const serverEnvSchema = z.object({
   YOUTUBE_API_KEY: optionalString,
   TELEGRAM_BOT_TOKEN: optionalString,
   TELEGRAM_WEB_APP_URL: optionalUrl,
-  DEV_TELEGRAM_CHAT_ID: optionalString,
   REMINDER_CRON_SECRET: optionalSecret,
   ADMIN_API_SECRET: z.string().min(16),
   DEV_USER_ID: z.uuid().optional(),

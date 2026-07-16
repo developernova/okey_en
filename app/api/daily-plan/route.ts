@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { requireUserId } from "@/server/auth/user-context"
+import { getOrCreateDailyPlan } from "@/server/daily-plan/daily-plan-service"
 import { jsonError } from "@/server/shared/http"
 import { buildDailyQueue } from "@/server/srs/daily-queue"
 
@@ -15,7 +16,12 @@ export async function GET(request: Request) {
     const query = querySchema.parse({
       episodeId: url.searchParams.get("episodeId") ?? undefined,
     })
-    const result = await buildDailyQueue({ userId, ...query })
+    const plan = await getOrCreateDailyPlan(userId)
+    const result = await buildDailyQueue({
+      userId,
+      episodeId: query.episodeId ?? plan.episodeId,
+      returnGapDays: plan.returnGapDays,
+    })
     return Response.json({ data: result })
   } catch (error) {
     return jsonError(error)

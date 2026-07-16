@@ -70,13 +70,15 @@ type PlaylistPreview = {
 }
 
 type ImportResult = {
-  status: "pending" | "processing" | "ready" | "failed"
+  status: "pending" | "processing" | "ready" | "failed" | "skipped"
   message?: string
 }
 
 type QueuedBatch = {
   batchId: string
   queued: number
+  skipped: number
+  skippedVideoIds: string[]
 }
 
 type BatchStatus = {
@@ -87,12 +89,30 @@ type BatchStatus = {
   processing: number
   ready: number
   failed: number
+  totalTokens: number
+  costUsd: number
   jobs: Array<{
     id: string
     videoId: string
     status: ImportResult["status"]
     error: string | null
+    attemptCount: number
+    nextAttemptAt: string | null
+    totalTokens: number
+    costUsd: number
   }>
+}
+
+function batchUsageLabel(totalTokens: number, costUsd: number) {
+  if (totalTokens === 0 && costUsd === 0) return "LLM-расходов пока нет."
+  const tokens = new Intl.NumberFormat("ru-RU").format(totalTokens)
+  const cost = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 6,
+  }).format(costUsd)
+  return `LLM: ${tokens} токенов · ${cost}.`
 }
 
 function durationLabel(seconds: number) {
@@ -150,6 +170,7 @@ export function PlaylistImporter({
   const [results, setResults] = React.useState<Record<string, ImportResult>>({})
   const [running, setRunning] = React.useState(false)
   const [completedCount, setCompletedCount] = React.useState(0)
+  const [batchTotal, setBatchTotal] = React.useState(0)
   const [backgroundNotice, setBackgroundNotice] = React.useState<string | null>(
     null
   )
@@ -225,6 +246,7 @@ export function PlaylistImporter({
     setError(null)
     setBackgroundNotice(null)
     setCompletedCount(0)
+    setBatchTotal(0)
     setResults(
       Object.fromEntries(
         items.map((item) => [item.videoId, { status: "pending" }])
@@ -253,8 +275,22 @@ export function PlaylistImporter({
           })),
         }),
       })
+      setBatchTotal(queued.queued)
+      setResults((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          queued.skippedVideoIds.map((videoId) => [
+            videoId,
+            { status: "skipped" as const },
+          ])
+        ),
+      }))
       setBackgroundNotice(
-        `${queued.queued} видео поставлено в фоновую очередь. Эту страницу можно закрыть.`
+        `${queued.queued} видео поставлено в фоновую очередь${
+          queued.skipped > 0
+            ? `, ${queued.skipped} пропущено как дубликаты`
+            : ""
+        }. Эту страницу можно закрыть.`
       )
 
       while (true) {
@@ -263,8 +299,13 @@ export function PlaylistImporter({
           { method: "GET" }
         )
         setCompletedCount(status.completed)
-        setResults(
-          Object.fromEntries(
+        setResults((current) => ({
+          ...Object.fromEntries(
+            Object.entries(current).filter(
+              ([, result]) => result.status === "skipped"
+            )
+          ),
+          ...Object.fromEntries(
             status.jobs.map((job) => [
               job.videoId,
               {
@@ -272,16 +313,33 @@ export function PlaylistImporter({
                 ...(job.error ? { message: job.error } : {}),
               },
             ])
-          )
-        )
+          ),
+        }))
         if (status.pending === 0 && status.processing === 0) {
-          setBackgroundNotice(
-            status.failed > 0
-              ? `Импорт завершён: ${status.ready} готово, ${status.failed} с ошибкой.`
-              : `Импорт завершён: ${status.ready} видео готово.`
-          )
+          const usage = batchUsageLabel(status.totalTokens, status.costUsd)
+          if (status.total === 0 && queued.skipped > 0) {
+            setBackgroundNotice(
+              `Новых видео нет: ${queued.skipped} пропущено как дубликаты.`
+            )
+          } else {
+            const skipped =
+              queued.skipped > 0
+                ? `, ${queued.skipped} пропущено как дубликаты`
+                : ""
+            setBackgroundNotice(
+              status.failed > 0
+                ? `Импорт завершён: ${status.ready} готово, ${status.failed} с ошибкой${skipped}. ${usage}`
+                : `Импорт завершён: ${status.ready} готово${skipped}. ${usage}`
+            )
+          }
           break
         }
+        setBackgroundNotice(
+          `Фоновый импорт: ${status.completed} из ${status.total}. ${batchUsageLabel(
+            status.totalTokens,
+            status.costUsd
+          )} Эту страницу можно закрыть.`
+        )
         await delay(2_500)
       }
       await onComplete()
@@ -302,8 +360,8 @@ export function PlaylistImporter({
   const allSelected =
     selectableItems.length > 0 &&
     selectableItems.every((item) => selected.has(item.videoId))
-  const progressValue = selected.size
-    ? Math.round((completedCount / selected.size) * 100)
+  const progressValue = batchTotal
+    ? Math.round((completedCount / batchTotal) * 100)
     : 0
 
   return (
@@ -449,7 +507,9 @@ export function PlaylistImporter({
                                   ? "destructive"
                                   : result.status === "ready"
                                     ? "default"
-                                    : "secondary"
+                                    : result.status === "skipped"
+                                      ? "outline"
+                                      : "secondary"
                               }
                               title={result.message}
                             >
@@ -459,7 +519,9 @@ export function PlaylistImporter({
                                   ? "Готово"
                                   : result.status === "failed"
                                     ? "Ошибка"
-                                    : "Ожидает"}
+                                    : result.status === "skipped"
+                                      ? "Пропущено"
+                                      : "Ожидает"}
                             </Badge>
                           ) : (
                             <Badge variant="outline">
@@ -553,7 +615,7 @@ export function PlaylistImporter({
                 disabled={running || selected.size === 0 || !programId}
               >
                 {running
-                  ? `${completedCount} из ${selected.size}`
+                  ? `${completedCount} из ${batchTotal || selected.size}`
                   : `Импортировать выбранные (${selected.size})`}
               </Button>
               <span className="text-xs text-muted-foreground">

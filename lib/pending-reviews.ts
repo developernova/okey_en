@@ -8,6 +8,21 @@ export type PendingReview = {
 }
 
 const storageKey = "okey-english:pending-reviews:v1"
+const discardableStatuses = new Set([400, 404, 409, 410, 422])
+const DEFAULT_FLUSH_BUDGET_MS = 3_000
+const MAX_REVIEW_REQUEST_MS = 3_000
+
+export type PendingReviewFlushResult = {
+  synced: number
+  discarded: number
+  remaining: number
+}
+
+export function normalizeReviewQueueIndex(index: number, queueLength: number) {
+  return Number.isInteger(index) && index >= 0 && index < queueLength
+    ? index
+    : 0
+}
 
 function storage() {
   if (typeof window === "undefined") return undefined
@@ -50,16 +65,57 @@ function removePendingReview(eventId: string) {
   )
 }
 
-export async function flushPendingReviews() {
+export async function flushPendingReviews(
+  options: { maxDurationMs?: number } = {}
+) {
+  let synced = 0
+  let discarded = 0
+  const budgetMs = Math.max(1, options.maxDurationMs ?? DEFAULT_FLUSH_BUDGET_MS)
+  const deadline = Date.now() + budgetMs
+
   for (const review of getPendingReviews()) {
-    const response = await telegramFetch("/api/reviews", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(review),
-    })
-    if (!response.ok) {
-      throw new Error("Не удалось синхронизировать ответы")
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) break
+
+    let response: Response
+    const controller = new AbortController()
+    const timeout = setTimeout(
+      () => controller.abort(),
+      Math.max(1, Math.min(MAX_REVIEW_REQUEST_MS, remainingMs))
+    )
+    try {
+      response = await telegramFetch("/api/reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(review),
+        signal: controller.signal,
+      })
+    } catch {
+      break
+    } finally {
+      clearTimeout(timeout)
     }
-    removePendingReview(review.eventId)
+
+    if (response.ok) {
+      removePendingReview(review.eventId)
+      synced += 1
+      continue
+    }
+
+    if (discardableStatuses.has(response.status)) {
+      removePendingReview(review.eventId)
+      discarded += 1
+      continue
+    }
+
+    // Authentication failures, rate limits and server/network failures may be
+    // temporary. Preserve this event and the ordering of everything after it.
+    break
   }
+
+  return {
+    synced,
+    discarded,
+    remaining: getPendingReviews().length,
+  } satisfies PendingReviewFlushResult
 }

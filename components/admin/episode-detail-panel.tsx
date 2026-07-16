@@ -57,6 +57,12 @@ type EpisodeDetail = {
     error: string | null
     model: string | null
     promptVersion: string | null
+    attemptCount: number
+    nextAttemptAt: string | null
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+    costUsd: number
     metadata: Record<string, unknown>
     startedAt: string | null
     finishedAt: string | null
@@ -93,6 +99,18 @@ function statusLabel(status: Status) {
   if (status === "failed") return "Ошибка"
   if (status === "processing") return "Обработка"
   return "В очереди"
+}
+
+function llmUsageLabel(job: EpisodeDetail["jobs"][number]) {
+  if (job.totalTokens === 0 && job.costUsd === 0) return "Нет данных"
+  const tokens = new Intl.NumberFormat("ru-RU").format(job.totalTokens)
+  const cost = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 6,
+  }).format(job.costUsd)
+  return `${tokens} · ${cost}`
 }
 
 export function EpisodeDetailPanel({
@@ -341,6 +359,8 @@ export function EpisodeDetailPanel({
                   <TableHead>Статус</TableHead>
                   <TableHead>Модель</TableHead>
                   <TableHead>Prompt</TableHead>
+                  <TableHead>Попытки</TableHead>
+                  <TableHead>LLM</TableHead>
                   <TableHead>Результат</TableHead>
                 </TableRow>
               </TableHeader>
@@ -361,6 +381,17 @@ export function EpisodeDetailPanel({
                     <TableCell className="font-mono text-xs">
                       {job.promptVersion ?? "—"}
                     </TableCell>
+                    <TableCell className="text-xs">
+                      <div>{job.attemptCount}</div>
+                      {job.nextAttemptAt && (
+                        <div className="mt-1 whitespace-nowrap text-zinc-500">
+                          повтор {formatDate(job.nextAttemptAt)}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs whitespace-nowrap">
+                      {llmUsageLabel(job)}
+                    </TableCell>
                     <TableCell className="max-w-2xl text-xs whitespace-normal">
                       {job.error ?? "Без ошибок"}
                     </TableCell>
@@ -369,7 +400,7 @@ export function EpisodeDetailPanel({
                 {detail.jobs.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={5}
+                      colSpan={7}
                       className="h-28 text-center text-zinc-500"
                     >
                       Запусков нет

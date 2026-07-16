@@ -43,7 +43,7 @@ OpenRouter assigns CEFR A1–C2 to every extracted phrase. After each import,
 the course range is recalculated automatically from all active phrases in that
 course.
 
-The admin route is intentionally synchronous for the first vertical slice. Before bulk imports, move the same service behind a durable worker/queue; the `ingestion_jobs` table already provides the state model.
+The single-episode admin route is synchronous. Playlist imports use the database-backed background queue and continue after the admin page is closed.
 
 ## Content admin
 
@@ -60,7 +60,7 @@ The admin MVP supports:
 - publishing or hiding an individual episode independently of ingestion status;
 - permanently deleting an episode and all episode-owned learning data after an explicit two-step confirmation;
 - viewing the stored transcript with search and clickable timecodes, extracted phrases, the embedded video, and episode-specific ingestion history;
-- inspecting the latest ingestion runs, model names, and errors.
+- inspecting the latest ingestion runs, retry state, model names, token usage, USD cost, and errors.
 
 Playlist preview uses the official YouTube Data API v3 through `googleapis`. Add an API key with YouTube Data API v3 enabled to `.env.local`:
 
@@ -68,7 +68,7 @@ Playlist preview uses the official YouTube Data API v3 through `googleapis`. Add
 YOUTUBE_API_KEY=replace-with-a-restricted-google-api-key
 ```
 
-The admin reads every playlist item in pages of 50, then sends selected videos through the existing episode importer strictly one at a time with a 1.5-second pause between requests. One failure does not roll back earlier successes.
+The admin reads every playlist item in pages of 50, deduplicates videos, and queues at most 500 items per batch. The worker imports strictly one at a time with a 1.5-second pause. Temporary YouTube failures use bounded retries; a CAPTCHA, 429, or provider-wide 5xx pauses the remaining queue instead of burning the batch. OpenRouter completion tokens are capped, and usage/cost is persisted after every completed transcript chunk.
 
 Hiding an episode remains the normal reversible action. Permanent deletion is available as a separate destructive action and removes the episode's plans, subtitles, phrases, cards, review logs, interview requests, and ingestion history in one transaction.
 
@@ -78,16 +78,16 @@ Hiding an episode remains the normal reversible action. Permanent deletion is av
 - `GET /api/today` creates or restores today's three-step plan. `POST /api/daily-plan/items` completes `watch`, `review`, or `retell` idempotently.
 - `POST /api/reviews` accepts an idempotent card rating with `eventId`, `cardId`, `rating`, and `answeredAt`.
 - `GET /api/progress/comprehension?episodeId=<uuid>` returns frequency-weighted vocabulary coverage.
-- `POST /api/interview` starts or advances the three-question video interview. Conversation state is signed and returned to the client; message content is not stored in PostgreSQL.
+- `POST /api/interview` starts or advances the three-question video interview. The current workday's conversation is restored from PostgreSQL and replaced when a new daily plan starts.
 - `GET` and `PUT /api/reminders` restore and update the current user's daily reminder time.
 
 A completed daily plan advances the user's program to the next ready episode. The completed plan keeps its original episode, so reopening the app on the same local date still shows the finished day; the next episode starts with the following day's plan.
 
-The interview uses `deepseek/deepseek-v4-flash` by default. PostgreSQL stores only request timestamps and request kind for the 10 requests/minute and 30 user messages/day limits. Before production, set a monthly spending cap for the OpenRouter API key in the OpenRouter dashboard; this is an account-side safety control and cannot be enforced reliably by the application process.
+The interview uses `deepseek/deepseek-v4-flash` by default. Its rate-limit ledger stores request timestamps and request kind for the 10 requests/minute and 30 user messages/day limits; the separate daily interview session stores only the current workday's chat. Before production, set a monthly spending cap for the OpenRouter API key in the OpenRouter dashboard; this is an account-side safety control and cannot be enforced reliably by the application process.
 
 Voice answers are best-effort. Supported Telegram clients can record an answer and send it to the OpenRouter transcription endpoint using the same `OPENROUTER_API_KEY` as the interview. `OPENROUTER_TRANSCRIPTION_MODEL` defaults to `openai/whisper-large-v3`; any OpenRouter model with transcription output can be configured. Text input remains available at all times.
 
-In Telegram, the client automatically sends raw `Telegram.WebApp.initData` with every learner API request. The server verifies its HMAC signature and 24-hour freshness using `TELEGRAM_BOT_TOKEN`, then creates or restores the matching row in `users`. The verified WebApp profile fields (name, username, language, Premium and messaging/menu flags, and photo URL when Telegram provides it) are refreshed on every authenticated request; raw `initData` is never stored. In production, requests without valid `initData` fail closed. Browser development continues to use `DEV_USER_ID` or the `x-user-id` header when no `initData` is available.
+In Telegram, the client automatically sends raw `Telegram.WebApp.initData` and the device's IANA timezone with every learner API request. The server verifies the init-data HMAC signature and 24-hour freshness using `TELEGRAM_BOT_TOKEN`, validates the timezone, then creates or restores the matching row in `users`. The verified WebApp profile fields (name, username, language, Premium and messaging/menu flags, and photo URL when Telegram provides it) are refreshed on every authenticated request; raw `initData` is never stored. In production, requests without valid `initData` fail closed. Browser development continues to use `DEV_USER_ID` or the `x-user-id` header when no `initData` is available.
 
 ## Telegram reminders
 
@@ -95,21 +95,20 @@ For browser-only development, add these values to `.env.local`. `TELEGRAM_BOT_TO
 
 ```dotenv
 TELEGRAM_BOT_TOKEN=123456:bot-token
-DEV_TELEGRAM_CHAT_ID=123456789
 REMINDER_CRON_SECRET=replace-with-a-random-secret-of-at-least-16-characters
 # Optional until there is a public HTTPS TMA URL:
 TELEGRAM_WEB_APP_URL=https://example.com
 ```
 
-The development user must have opened the bot and sent `/start`; Telegram bots cannot initiate a conversation before that. `DEV_TELEGRAM_CHAT_ID` is copied to the development user when reminder settings are saved.
+Telegram bots cannot initiate a conversation before a user has opened the bot and sent `/start`. Reminder settings never modify the Telegram identity stored for a user.
 
-Run the dispatcher every minute. It compares the current minute in each user's timezone, skips a completed day, and records a daily idempotency claim before sending:
+Run the dispatcher every minute. It checks a grace window in each user's timezone, skips a completed day, and takes an atomic daily delivery lease before sending:
 
 ```bash
 npm run reminders:send
 ```
 
-Alternatively, schedule `POST /api/admin/reminders/send` every minute with `x-cron-secret: $REMINDER_CRON_SECRET`. A failed Telegram request releases its claim so a later invocation can retry. For deployment, use a platform cron or durable scheduler; the Next.js process does not contain an in-process timer.
+Alternatively, schedule `POST /api/admin/reminders/send` every minute with `x-cron-secret: $REMINDER_CRON_SECRET`. Failed Telegram requests retain their delivery record and retry with bounded backoff; parallel cron calls cannot send the same reminder twice. The same tick wakes the database-backed playlist import queue after a deploy or process restart. For deployment, use a platform cron or durable scheduler; the Next.js process does not rely on an in-process timer for recovery.
 
 ## Quality checks
 

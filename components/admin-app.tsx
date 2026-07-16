@@ -68,6 +68,12 @@ type IngestionJob = {
   status: Status
   error: string | null
   model: string | null
+  attemptCount: number
+  nextAttemptAt: string | null
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  costUsd: number
   startedAt: string | null
   finishedAt: string | null
   createdAt: string
@@ -117,6 +123,18 @@ function durationLabel(seconds: number) {
   return hours
     ? `${hours}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`
     : `${minutes}:${String(rest).padStart(2, "0")}`
+}
+
+function llmUsageLabel(job: IngestionJob) {
+  if (job.totalTokens === 0 && job.costUsd === 0) return "Нет данных"
+  const tokens = new Intl.NumberFormat("ru-RU").format(job.totalTokens)
+  const cost = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 6,
+  }).format(job.costUsd)
+  return `${tokens} токенов · ${cost}`
 }
 
 function statusLabel(status: Status) {
@@ -1118,6 +1136,8 @@ export function AdminApp() {
                         <TableHead>Источник</TableHead>
                         <TableHead>Статус</TableHead>
                         <TableHead>Модель</TableHead>
+                        <TableHead>Попытки</TableHead>
+                        <TableHead>LLM</TableHead>
                         <TableHead>Результат</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1141,6 +1161,17 @@ export function AdminApp() {
                           <TableCell className="font-mono text-xs">
                             {job.model ?? "—"}
                           </TableCell>
+                          <TableCell className="text-xs">
+                            <div>{job.attemptCount}</div>
+                            {job.nextAttemptAt && (
+                              <div className="mt-1 whitespace-nowrap text-zinc-500">
+                                повтор {formatDate(job.nextAttemptAt)}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">
+                            {llmUsageLabel(job)}
+                          </TableCell>
                           <TableCell
                             className={
                               job.error
@@ -1155,7 +1186,7 @@ export function AdminApp() {
                       {catalog.jobs.length === 0 && (
                         <TableRow>
                           <TableCell
-                            colSpan={5}
+                            colSpan={7}
                             className="h-32 text-center text-zinc-500"
                           >
                             Импортов пока не было

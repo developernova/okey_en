@@ -1,3 +1,5 @@
+import { and, eq, ne } from "drizzle-orm"
+
 import { env } from "@/server/config/env"
 import { getDb } from "@/db"
 import { users } from "@/db/schema"
@@ -8,8 +10,12 @@ import {
 } from "@/server/auth/admin-session"
 import { validateTelegramInitData } from "@/server/auth/telegram-init-data"
 import { AppError } from "@/server/shared/errors"
+import { canonicalizeIanaTimezone } from "@/server/shared/timezone"
 
-async function resolveTelegramUserId(rawInitData: string) {
+async function resolveTelegramUserId(
+  rawInitData: string,
+  timezone: string | null
+) {
   const botToken = env().TELEGRAM_BOT_TOKEN
   if (!botToken) {
     throw new AppError(
@@ -33,7 +39,7 @@ async function resolveTelegramUserId(rawInitData: string) {
       addedToAttachmentMenu: identity.addedToAttachmentMenu,
       allowsWriteToPm: identity.allowsWriteToPm,
       photoUrl: identity.photoUrl ?? null,
-      lastActiveAt: now,
+      ...(timezone ? { timezone } : {}),
       updatedAt: now,
     })
     .onConflictDoUpdate({
@@ -47,7 +53,7 @@ async function resolveTelegramUserId(rawInitData: string) {
         addedToAttachmentMenu: identity.addedToAttachmentMenu,
         allowsWriteToPm: identity.allowsWriteToPm,
         photoUrl: identity.photoUrl ?? null,
-        lastActiveAt: now,
+        ...(timezone ? { timezone } : {}),
         updatedAt: now,
       },
     })
@@ -61,8 +67,11 @@ async function resolveTelegramUserId(rawInitData: string) {
 }
 
 export async function requireUserId(request: Request) {
+  const timezone = canonicalizeIanaTimezone(
+    request.headers.get("x-user-timezone")
+  )
   const rawInitData = request.headers.get("x-telegram-init-data")
-  if (rawInitData) return resolveTelegramUserId(rawInitData)
+  if (rawInitData) return resolveTelegramUserId(rawInitData, timezone)
 
   if (process.env.NODE_ENV === "production") {
     throw new AppError(
@@ -80,6 +89,14 @@ export async function requireUserId(request: Request) {
       401,
       "USER_REQUIRED"
     )
+  }
+
+  if (timezone) {
+    const now = new Date()
+    await getDb()
+      .update(users)
+      .set({ timezone, updatedAt: now })
+      .where(and(eq(users.id, userId), ne(users.timezone, timezone)))
   }
 
   return userId

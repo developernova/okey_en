@@ -1,6 +1,7 @@
 import {
   boolean,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -14,6 +15,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
 
 export const ingestionStatus = pgEnum("ingestion_status", [
   "pending",
@@ -356,6 +358,7 @@ export const dailyPlans = pgTable(
     planDate: date("plan_date").notNull(),
     status: planStatus("status").notNull().default("not_started"),
     episodeId: uuid("episode_id").references(() => episodes.id),
+    returnGapDays: integer("return_gap_days").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -444,6 +447,10 @@ export const reminderDeliveries = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     deliveryDate: date("delivery_date").notNull(),
     scheduledTime: time("scheduled_time").notNull(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    lastError: text("last_error"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -474,6 +481,12 @@ export const ingestionJobs = pgTable(
       .$type<Record<string, unknown>>()
       .notNull()
       .default({}),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    promptTokens: integer("prompt_tokens").notNull().default(0),
+    completionTokens: integer("completion_tokens").notNull().default(0),
+    totalTokens: integer("total_tokens").notNull().default(0),
+    costUsd: doublePrecision("cost_usd").notNull().default(0),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -482,5 +495,12 @@ export const ingestionJobs = pgTable(
   },
   (table) => [
     index("ingestion_jobs_youtube_idx").on(table.youtubeId, table.createdAt),
+    index("ingestion_jobs_next_attempt_idx").on(
+      table.status,
+      table.nextAttemptAt
+    ),
+    uniqueIndex("ingestion_jobs_active_youtube_unique")
+      .on(table.youtubeId)
+      .where(sql`${table.status} in ('pending', 'processing')`),
   ]
 )

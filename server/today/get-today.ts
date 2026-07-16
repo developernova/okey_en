@@ -5,14 +5,25 @@ import {
 import { calculateComprehension } from "@/server/progress/comprehension"
 import { buildDailyQueue } from "@/server/srs/daily-queue"
 
-export async function getToday(userId: string) {
+export async function getToday(
+  userId: string,
+  options: { autoCompleteEmptyReview?: boolean } = {}
+) {
   let plan = await getOrCreateDailyPlan(userId)
   const [queue, comprehension] = await Promise.all([
-    buildDailyQueue({ userId, episodeId: plan.episodeId }),
+    buildDailyQueue({
+      userId,
+      episodeId: plan.episodeId,
+      returnGapDays: plan.returnGapDays,
+    }),
     calculateComprehension({ userId, episodeId: plan.episodeId }),
   ])
 
-  if (queue.cards.length === 0 && !plan.completedItems.includes("review")) {
+  if (
+    options.autoCompleteEmptyReview !== false &&
+    queue.cards.length === 0 &&
+    !plan.completedItems.includes("review")
+  ) {
     const completion = await completeDailyPlanItem({
       userId,
       episodeId: plan.episodeId,

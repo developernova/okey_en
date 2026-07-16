@@ -12,8 +12,11 @@ export async function POST(request: Request) {
     if (!env().REMINDER_CRON_SECRET || secret !== env().REMINDER_CRON_SECRET) {
       throw new AppError("Invalid cron secret", 401, "CRON_REQUIRED")
     }
-    const result = await sendDueReminders()
+    // The same durable cron tick also wakes database-backed imports after a
+    // deploy/restart. Register it before reminder work so one Telegram failure
+    // cannot prevent queue recovery.
     after(() => startImportWorker())
+    const result = await sendDueReminders()
     return Response.json({ data: result })
   } catch (error) {
     return jsonError(error)

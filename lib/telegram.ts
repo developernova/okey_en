@@ -52,6 +52,10 @@ export function telegramFetch(input: RequestInfo | URL, init?: RequestInit) {
   const headers = new Headers(init?.headers)
   const initData = getTelegramWebApp()?.initData
   if (initData) headers.set("x-telegram-init-data", initData)
+  if (typeof window !== "undefined") {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    if (timezone) headers.set("x-user-timezone", timezone)
+  }
 
   return fetch(input, { ...init, headers })
 }
