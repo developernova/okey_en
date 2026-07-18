@@ -29,8 +29,14 @@ import {
   enqueuePendingReview,
   flushPendingReviews,
   getPendingReviews,
+  hasReviewsBlockingPlanItemFlush,
   normalizeReviewQueueIndex,
 } from "@/lib/pending-reviews"
+import {
+  enqueuePendingPlanItem,
+  flushPendingPlanItems,
+  getPendingPlanItems,
+} from "@/lib/pending-plan-items"
 import {
   getTelegramCloudFlag,
   getTelegramWebApp,
@@ -92,6 +98,12 @@ type TodayDto = {
     newCardsPaused: boolean
     estimatedMinutes: number
     message?: string
+    reviewStep?: {
+      status: "available" | "completed" | "skipped"
+      skipReason: "no_cards" | null
+      assignedCount: number
+      reviewedCount: number
+    }
     cards: ReviewCardDto[]
   }
 }
@@ -161,21 +173,35 @@ type PlanItemResult = {
   completedItems: TodayDto["plan"]["completedItems"]
 }
 
+class PlanItemRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message)
+    this.name = "PlanItemRequestError"
+  }
+}
+
 async function requestPlanItem(
+  planId: string,
   episodeId: string,
   type: PlanItemType
 ): Promise<PlanItemResult> {
   const response = await telegramFetch("/api/daily-plan/items", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ episodeId, type }),
+    body: JSON.stringify({ planId, episodeId, type }),
   })
   const payload = (await response.json()) as {
     data?: PlanItemResult
     error?: { message?: string }
   }
   if (!response.ok || !payload.data) {
-    throw new Error(payload.error?.message ?? "Не удалось сохранить шаг")
+    throw new PlanItemRequestError(
+      payload.error?.message ?? "Не удалось сохранить шаг",
+      response.status
+    )
   }
   return payload.data
 }
@@ -668,6 +694,10 @@ export function WordflowApp() {
   const [todayLoading, setTodayLoading] = React.useState(false)
   const [todayError, setTodayError] = React.useState<string | null>(null)
   const [sessionCardTotal, setSessionCardTotal] = React.useState(0)
+  const [planItemSaving, setPlanItemSaving] =
+    React.useState<PlanItemType | null>(null)
+  const [reviewCompletionPending, setReviewCompletionPending] =
+    React.useState(false)
   const [programSettings, setProgramSettings] = React.useState<
     ProgramSettingDto[] | null
   >(null)
@@ -706,6 +736,18 @@ export function WordflowApp() {
   )
   const reviewSyncInFlight = React.useRef<Promise<void> | null>(null)
   const reviewSyncRequested = React.useRef(false)
+  const planItemSyncInFlight = React.useRef<ReturnType<
+    typeof flushPendingPlanItems
+  > | null>(null)
+  const todayLoadInFlight = React.useRef<Promise<TodayDto | null> | null>(null)
+  const todayRefreshInFlight = React.useRef<Promise<void> | null>(null)
+  const todayRefreshRequested = React.useRef(false)
+  const todayStateVersion = React.useRef(0)
+  const activePlanId = React.useRef<string | null>(null)
+  const planItemSaveInFlight = React.useRef(false)
+  const reviewCompletionInFlight = React.useRef(false)
+  const deferredTodayRefresh = React.useRef(false)
+  const screenRef = React.useRef<Screen>(screen)
   const interviewRun = React.useRef(0)
   const mediaStream = React.useRef<MediaStream | null>(null)
   const mediaRecorder = React.useRef<MediaRecorder | null>(null)
@@ -714,6 +756,10 @@ export function WordflowApp() {
   const voiceRecordingInProgress = React.useRef(false)
   const voiceTranscriptionInProgress = React.useRef(false)
   const interviewBottom = React.useRef<HTMLDivElement | null>(null)
+
+  React.useEffect(() => {
+    screenRef.current = screen
+  }, [screen])
 
   const releaseMicrophone = React.useCallback(() => {
     voiceLifecycle.current += 1
@@ -785,7 +831,10 @@ export function WordflowApp() {
         do {
           reviewSyncRequested.current = false
           try {
-            await flushPendingReviews()
+            const result = await flushPendingReviews()
+            if (result.synced > 0 || result.discarded > 0) {
+              todayStateVersion.current += 1
+            }
           } catch {
             // The queue remains in localStorage and is retried when connectivity returns.
           }
@@ -798,110 +847,155 @@ export function WordflowApp() {
     return work
   }, [])
 
-  const loadToday = React.useCallback(async () => {
-    setTodayLoading(true)
-    setTodayError(null)
-    try {
-      const response = await telegramFetch("/api/today", { cache: "no-store" })
-      const payload = (await response.json()) as {
-        data?: TodayDto
-        error?: { message?: string }
-      }
-      if (!response.ok || !payload.data) {
-        throw new Error(payload.error?.message ?? "Не удалось загрузить план")
-      }
-      const pendingCardIds = new Set(
-        getPendingReviews().map((review) => review.cardId)
+  const syncPendingPlanItems = React.useCallback(() => {
+    if (planItemSyncInFlight.current) return planItemSyncInFlight.current
+
+    const pendingPlanItems = getPendingPlanItems()
+    if (
+      hasReviewsBlockingPlanItemFlush(
+        pendingPlanItems.map((item) => item.planId)
       )
-      const pendingCards = payload.data.queue.cards.filter((card) =>
-        pendingCardIds.has(card.id)
-      )
-      const visibleCards = payload.data.queue.cards.filter(
-        (card) => !pendingCardIds.has(card.id)
-      )
-      const reviewCoveredByPending =
-        visibleCards.length === 0 &&
-        pendingCards.length > 0 &&
-        !payload.data.plan.completedItems.includes("review")
-      const completedItems = reviewCoveredByPending
-        ? ([
-            ...payload.data.plan.completedItems,
-            "review",
-          ] as TodayDto["plan"]["completedItems"])
-        : payload.data.plan.completedItems
-      const today = {
-        ...payload.data,
-        plan: reviewCoveredByPending
-          ? {
-              ...payload.data.plan,
-              status:
-                completedItems.includes("watch") &&
-                completedItems.includes("review") &&
-                completedItems.includes("retell")
-                  ? ("complete" as const)
-                  : ("supporting" as const),
-              completedItems,
-            }
-          : payload.data.plan,
-        queue: {
-          ...payload.data.queue,
-          cards: visibleCards,
-          shownReviews: Math.max(
-            0,
-            payload.data.queue.shownReviews -
-              pendingCards.filter((card) => card.reps > 0).length
-          ),
-          estimatedMinutes:
-            visibleCards.length === 0
-              ? 0
-              : Math.max(1, Math.ceil(visibleCards.length * 0.4)),
-        },
-      }
-      setTodayData(today)
-      setCardIndex(0)
-      setRevealed(false)
-      setVideoDone(completedItems.includes("watch"))
-      setCardsDone(completedItems.includes("review"))
-      setRetellDone(completedItems.includes("retell"))
-      const knownSessionCards = visibleCards.length + pendingCards.length
-      if (knownSessionCards > 0) {
-        setSessionCardTotal((current) => current || knownSessionCards)
-      }
-      if (reviewCoveredByPending) {
-        void requestPlanItem(payload.data.episode.id, "review")
-          .then((saved) => {
-            setTodayData((current) =>
-              current
-                ? {
-                    ...current,
-                    plan: {
-                      ...current.plan,
-                      status: saved.status,
-                      completedItems: saved.completedItems,
-                    },
-                  }
-                : current
-            )
-          })
-          .catch(() => {
-            // Keep the locally completed state. The idempotent save is retried
-            // on the next plan load, while pending reviews remain protected.
-          })
-      }
-    } catch (error) {
-      setTodayError(
-        error instanceof Error ? error.message : "Не удалось загрузить план"
-      )
-    } finally {
-      setTodayLoading(false)
+    ) {
+      return Promise.resolve({
+        saved: [],
+        stale: [],
+        discarded: 0,
+        remaining: pendingPlanItems.length,
+      })
     }
+
+    const work = (async () => {
+      const result = await flushPendingPlanItems()
+      if (result.saved.length > 0 || result.stale.length > 0) {
+        todayStateVersion.current += 1
+      }
+      return result
+    })()
+    planItemSyncInFlight.current = work
+    const clearInFlight = () => {
+      if (planItemSyncInFlight.current === work) {
+        planItemSyncInFlight.current = null
+      }
+    }
+    void work.then(clearInFlight, clearInFlight)
+    return work
   }, [])
+
+  const loadToday = React.useCallback(() => {
+    if (todayLoadInFlight.current) return todayLoadInFlight.current
+    const requestedVersion = todayStateVersion.current
+
+    const work = (async () => {
+      setTodayLoading(true)
+      setTodayError(null)
+      try {
+        const response = await telegramFetch("/api/today", {
+          cache: "no-store",
+        })
+        const payload = (await response.json()) as {
+          data?: TodayDto
+          error?: { message?: string }
+        }
+        if (!response.ok || !payload.data) {
+          throw new Error(payload.error?.message ?? "Не удалось загрузить план")
+        }
+        if (requestedVersion !== todayStateVersion.current) return null
+
+        const today = payload.data
+        const completedItems = today.plan.completedItems
+        const planChanged = activePlanId.current !== today.plan.id
+        activePlanId.current = today.plan.id
+
+        setTodayData(today)
+        setVideoDone(completedItems.includes("watch"))
+        setCardsDone(completedItems.includes("review"))
+        setRetellDone(completedItems.includes("retell"))
+
+        if (planChanged) {
+          setCardIndex(0)
+          setRevealed(false)
+          setReviewCompletionPending(false)
+          if (screenRef.current === "complete") setScreen("today")
+          setSessionCardTotal(
+            today.queue.reviewStep?.status === "skipped"
+              ? 0
+              : today.queue.reviewStep?.status === "completed"
+                ? today.queue.reviewStep.reviewedCount
+                : (today.queue.reviewStep?.assignedCount ??
+                  today.queue.cards.length)
+          )
+        } else if (
+          !completedItems.includes("review") &&
+          today.queue.cards.length > 0
+        ) {
+          setSessionCardTotal((current) =>
+            Math.max(
+              current,
+              today.queue.reviewStep?.assignedCount ?? today.queue.cards.length
+            )
+          )
+        } else if (completedItems.includes("review")) {
+          setSessionCardTotal(
+            today.queue.reviewStep?.status === "completed"
+              ? today.queue.reviewStep.reviewedCount
+              : 0
+          )
+        }
+        return today
+      } catch (error) {
+        if (requestedVersion !== todayStateVersion.current) return null
+        setTodayError(
+          error instanceof Error ? error.message : "Не удалось загрузить план"
+        )
+        return null
+      } finally {
+        setTodayLoading(false)
+      }
+    })()
+
+    todayLoadInFlight.current = work
+    void work.then(() => {
+      if (todayLoadInFlight.current === work) todayLoadInFlight.current = null
+    })
+    return work
+  }, [])
+
+  const reconcileTodayAfterMutation = React.useCallback(async () => {
+    const previousLoad = todayLoadInFlight.current
+    if (previousLoad) await previousLoad
+    return loadToday()
+  }, [loadToday])
+
+  const refreshToday = React.useCallback(() => {
+    todayRefreshRequested.current = true
+    if (todayRefreshInFlight.current) return todayRefreshInFlight.current
+
+    const work = (async () => {
+      do {
+        todayRefreshRequested.current = false
+        await syncPendingReviews(false)
+        await syncPendingPlanItems()
+
+        // A request that started before focus/online/midnight may describe the
+        // previous day. Ignore it, then fetch a fresh server snapshot.
+        if (todayLoadInFlight.current) todayStateVersion.current += 1
+        await reconcileTodayAfterMutation()
+      } while (todayRefreshRequested.current)
+    })()
+    todayRefreshInFlight.current = work
+    const clearInFlight = () => {
+      if (todayRefreshInFlight.current === work) {
+        todayRefreshInFlight.current = null
+      }
+    }
+    void work.then(clearInFlight, clearInFlight)
+    return work
+  }, [reconcileTodayAfterMutation, syncPendingPlanItems, syncPendingReviews])
 
   const openToday = React.useCallback(async () => {
     setScreen("today")
-    await syncPendingReviews(false)
-    await loadToday()
-  }, [loadToday, syncPendingReviews])
+    await refreshToday()
+  }, [refreshToday])
 
   React.useEffect(() => {
     let cancelled = false
@@ -926,6 +1020,50 @@ export function WordflowApp() {
       cancelled = true
     }
   }, [openToday, syncPendingReviews])
+
+  React.useEffect(() => {
+    let midnightRefresh: number | null = null
+
+    const requestRefresh = () => {
+      if (document.visibilityState === "hidden") return
+      if (screenRef.current !== "today" && screenRef.current !== "complete") {
+        deferredTodayRefresh.current = true
+        return
+      }
+      deferredTodayRefresh.current = false
+      void refreshToday()
+    }
+
+    const scheduleMidnightRefresh = () => {
+      const now = new Date()
+      const nextMidnight = new Date(now)
+      nextMidnight.setHours(24, 0, 1, 0)
+      midnightRefresh = window.setTimeout(
+        () => {
+          requestRefresh()
+          scheduleMidnightRefresh()
+        },
+        Math.max(1_000, nextMidnight.getTime() - now.getTime())
+      )
+    }
+
+    window.addEventListener("pageshow", requestRefresh)
+    window.addEventListener("focus", requestRefresh)
+    document.addEventListener("visibilitychange", requestRefresh)
+    scheduleMidnightRefresh()
+    return () => {
+      window.removeEventListener("pageshow", requestRefresh)
+      window.removeEventListener("focus", requestRefresh)
+      document.removeEventListener("visibilitychange", requestRefresh)
+      if (midnightRefresh !== null) window.clearTimeout(midnightRefresh)
+    }
+  }, [refreshToday])
+
+  React.useEffect(() => {
+    if (screen !== "today" || !deferredTodayRefresh.current) return
+    deferredTodayRefresh.current = false
+    void refreshToday()
+  }, [refreshToday, screen])
 
   const openSettings = React.useCallback(async () => {
     setScreen("settings")
@@ -1015,14 +1153,21 @@ export function WordflowApp() {
     webApp?.expand()
     if (webApp?.isVersionAtLeast("7.7")) webApp.disableVerticalSwipes?.()
 
-    const handleOnline = () => void syncPendingReviews()
+    const handleOnline = () => {
+      if (["today", "complete"].includes(screenRef.current)) {
+        void refreshToday()
+        return
+      }
+      deferredTodayRefresh.current = true
+      void syncPendingReviews().then(() => syncPendingPlanItems())
+    }
     window.addEventListener("online", handleOnline)
     void syncPendingReviews()
     return () => {
       window.removeEventListener("online", handleOnline)
       if (webApp?.isVersionAtLeast("7.7")) webApp.enableVerticalSwipes?.()
     }
-  }, [syncPendingReviews])
+  }, [refreshToday, syncPendingPlanItems, syncPendingReviews])
 
   React.useEffect(() => {
     const webApp = getTelegramWebApp()
@@ -1100,32 +1245,98 @@ export function WordflowApp() {
     }, 460)
   }
 
+  async function finishReviewStep() {
+    const planId = todayData?.plan.id
+    if (!planId || reviewCompletionInFlight.current) return
+
+    reviewCompletionInFlight.current = true
+    setPlanItemSaving("review")
+    setTodayError(null)
+    try {
+      await syncPendingReviews(false)
+      if (getPendingReviews().some((review) => review.planId === planId)) {
+        setTodayError("Не удалось синхронизировать все оценки карточек")
+        return
+      }
+
+      const sync = await syncPendingPlanItems()
+      if (sync.stale.some((item) => item.planId === planId)) {
+        await reconcileTodayAfterMutation()
+        setReviewCompletionPending(false)
+        setScreen("today")
+        return
+      }
+
+      const saved = sync.saved.find((entry) => entry.item.planId === planId)
+      if (!saved) {
+        if (!getPendingPlanItems().some((item) => item.planId === planId)) {
+          await reconcileTodayAfterMutation()
+          setReviewCompletionPending(false)
+          setScreen("today")
+        }
+        return
+      }
+
+      const freshToday = await reconcileTodayAfterMutation()
+      if (!freshToday || freshToday.plan.id !== planId) {
+        setReviewCompletionPending(false)
+        setScreen("today")
+        return
+      }
+
+      setReviewCompletionPending(false)
+      setCardIndex(0)
+      setRevealed(false)
+      setScreen(
+        freshToday.plan.completedItems.includes("watch") &&
+          freshToday.plan.completedItems.includes("review") &&
+          freshToday.plan.completedItems.includes("retell")
+          ? "complete"
+          : "today"
+      )
+    } finally {
+      reviewCompletionInFlight.current = false
+      if (!planItemSaveInFlight.current) setPlanItemSaving(null)
+    }
+  }
+
   function rateCard(rating: Rating) {
     const reviewQueue = todayData?.queue.cards ?? []
+    const planId = todayData?.plan.id
+    const episodeId = todayData?.episode.id
     const activeCardIndex = normalizeReviewQueueIndex(
       cardIndex,
       reviewQueue.length
     )
     const card = reviewQueue[activeCardIndex]
-    if (!card) return
+    if (
+      !card ||
+      !planId ||
+      !episodeId ||
+      reviewCompletionPending ||
+      planItemSaveInFlight.current
+    )
+      return
 
     enqueuePendingReview({
       eventId: crypto.randomUUID(),
       cardId: card.id,
+      planId,
       rating,
       answeredAt: new Date().toISOString(),
     })
+    const isLastCard = activeCardIndex === reviewQueue.length - 1
+    if (isLastCard) {
+      enqueuePendingPlanItem({ planId, episodeId, type: "review" })
+    }
     const haptics = getTelegramWebApp()?.HapticFeedback
     if (rating === "again") haptics?.notificationOccurred("warning")
     else haptics?.impactOccurred(rating === "hard" ? "medium" : "light")
     void syncPendingReviews()
 
-    if (activeCardIndex === reviewQueue.length - 1) {
-      setCardsDone(true)
-      void persistPlanItem("review")
-      setScreen(videoDone && retellDone ? "complete" : "today")
-      setCardIndex(0)
-      setRevealed(false)
+    if (isLastCard) {
+      setReviewCompletionPending(true)
+      void finishReviewStep()
       return
     }
     setCardIndex(activeCardIndex + 1)
@@ -1434,10 +1645,16 @@ export function WordflowApp() {
     setScreen("today")
   }
 
-  function markVideoDone() {
-    setVideoDone(true)
-    void persistPlanItem("watch")
-    setScreen(cardsDone && retellDone ? "complete" : "today")
+  async function markVideoDone() {
+    const saved = await persistPlanItem("watch")
+    if (!saved) return
+    setScreen(
+      saved.completedItems.includes("watch") &&
+        saved.completedItems.includes("review") &&
+        saved.completedItems.includes("retell")
+        ? "complete"
+        : "today"
+    )
   }
 
   function openYoutube(url: string) {
@@ -1450,26 +1667,38 @@ export function WordflowApp() {
   }
 
   async function persistPlanItem(type: PlanItemType) {
+    const planId = todayData?.plan.id
     const episodeId = todayData?.episode.id
-    if (!episodeId) return
+    if (!planId || !episodeId || planItemSaveInFlight.current) return null
+
+    planItemSaveInFlight.current = true
+    setPlanItemSaving(type)
+    setTodayError(null)
     try {
-      const result = await requestPlanItem(episodeId, type)
-      setTodayData((today) =>
-        today
-          ? {
-              ...today,
-              plan: {
-                ...today.plan,
-                status: result.status,
-                completedItems: result.completedItems,
-              },
-            }
-          : today
-      )
+      await requestPlanItem(planId, episodeId, type)
+      if (activePlanId.current !== planId) return null
+      todayStateVersion.current += 1
+      const freshToday = await reconcileTodayAfterMutation()
+      if (!freshToday || freshToday.plan.id !== planId) return null
+      return {
+        status: freshToday.plan.status,
+        completedItems: freshToday.plan.completedItems,
+      }
     } catch (error) {
+      if (error instanceof PlanItemRequestError && error.status === 409) {
+        todayStateVersion.current += 1
+        await reconcileTodayAfterMutation()
+        setReviewCompletionPending(false)
+        setScreen("today")
+        return null
+      }
       setTodayError(
         error instanceof Error ? error.message : "Не удалось сохранить шаг"
       )
+      return null
+    } finally {
+      planItemSaveInFlight.current = false
+      setPlanItemSaving(null)
     }
   }
 
@@ -2204,10 +2433,20 @@ export function WordflowApp() {
                 </button>
               </div>
               <div className="flex-1" />
+              {todayError && (
+                <p className="mt-4 text-center text-sm text-destructive">
+                  {todayError}
+                </p>
+              )}
               <Button
                 size="lg"
                 className="mt-8 h-14 w-full rounded-2xl text-base"
-                onClick={videoDone ? () => setScreen("today") : markVideoDone}
+                disabled={planItemSaving === "watch"}
+                onClick={
+                  videoDone
+                    ? () => setScreen("today")
+                    : () => void markVideoDone()
+                }
               >
                 {videoDone ? (
                   <>
@@ -2215,7 +2454,10 @@ export function WordflowApp() {
                   </>
                 ) : (
                   <>
-                    Я посмотрел — дальше <Icon icon={Tick02Icon} />
+                    {planItemSaving === "watch"
+                      ? "Сохраняем…"
+                      : "Я посмотрел — дальше"}{" "}
+                    <Icon icon={Tick02Icon} />
                   </>
                 )}
               </Button>
@@ -2232,11 +2474,45 @@ export function WordflowApp() {
 
   if (screen === "review") {
     const reviewQueue = todayData?.queue.cards ?? []
+    const reviewedBeforeSession =
+      todayData?.queue.reviewStep?.reviewedCount ?? 0
+    const assignedCardTotal =
+      todayData?.queue.reviewStep?.assignedCount ?? reviewQueue.length
     const activeCardIndex = normalizeReviewQueueIndex(
       cardIndex,
       reviewQueue.length
     )
     const card = reviewQueue[activeCardIndex]
+
+    if (reviewCompletionPending) {
+      return (
+        <PhoneShell>
+          <TopBar onBack={() => setScreen("today")} title="Карточки" />
+          <div className="grid min-h-[calc(100dvh-64px)] place-items-center px-6 text-center">
+            <div className="max-w-xs">
+              <p className="font-semibold">
+                {planItemSaving === "review"
+                  ? "Сохраняем повторение…"
+                  : "Оценки сохранены на устройстве"}
+              </p>
+              <p className="mt-2 text-sm leading-5 text-muted-foreground">
+                {planItemSaving === "review"
+                  ? "Это займёт несколько секунд."
+                  : "Не удалось подтвердить шаг на сервере. Можно повторить без повторной оценки карточек."}
+              </p>
+              {planItemSaving !== "review" && (
+                <Button
+                  className="mt-5"
+                  onClick={() => void finishReviewStep()}
+                >
+                  Повторить сохранение
+                </Button>
+              )}
+            </div>
+          </div>
+        </PhoneShell>
+      )
+    }
 
     if (!card) {
       return (
@@ -2258,7 +2534,7 @@ export function WordflowApp() {
       <PhoneShell className="flex flex-col">
         <TopBar
           onBack={() => setScreen("today")}
-          title={`${activeCardIndex + 1} из ${reviewQueue.length}`}
+          title={`${reviewedBeforeSession + activeCardIndex + 1} из ${assignedCardTotal}`}
           right={
             <span className="text-xs text-muted-foreground">
               ~{todayData?.queue.estimatedMinutes ?? 1} мин
@@ -2270,7 +2546,7 @@ export function WordflowApp() {
             <div
               className="h-full rounded-full bg-foreground transition-all"
               style={{
-                width: `${((activeCardIndex + 1) / reviewQueue.length) * 100}%`,
+                width: `${((reviewedBeforeSession + activeCardIndex + 1) / Math.max(1, assignedCardTotal)) * 100}%`,
               }}
             />
           </div>
@@ -2334,6 +2610,8 @@ export function WordflowApp() {
     const supportsHomeScreen = Boolean(
       getTelegramWebApp()?.isVersionAtLeast("8.0")
     )
+    const strengthenedCardTotal =
+      todayData?.queue.reviewStep?.status === "skipped" ? 0 : sessionCardTotal
     return (
       <PhoneShell>
         <div className="flex min-h-dvh flex-col px-6 pt-[var(--app-safe-top)] pb-[calc(24px+var(--app-safe-bottom))]">
@@ -2345,7 +2623,9 @@ export function WordflowApp() {
               План на сегодня выполнен
             </p>
             <h1 className="mt-2 text-[34px] font-semibold tracking-tight">
-              {sessionCardTotal} фраз укреплено
+              {strengthenedCardTotal > 0
+                ? `${strengthenedCardTotal} ${pluralRu(strengthenedCardTotal, "фраза укреплена", "фразы укреплены", "фраз укреплено")}`
+                : "На сегодня всё"}
             </h1>
             <p className="mt-4 max-w-xs text-[15px] leading-6 text-muted-foreground">
               Выпуск просмотрен, 3 ответа даны. Чат по видео доступен до конца
@@ -2440,6 +2720,12 @@ export function WordflowApp() {
   const newCount =
     todayData?.queue.cards.filter((card) => card.reps === 0).length ?? 0
   const cardCount = todayData?.queue.cards.length ?? 0
+  const reviewWasSkipped = todayData?.queue.reviewStep?.status === "skipped"
+  const legacyEmptyReview =
+    todayData?.queue.reviewStep === undefined &&
+    cardsDone &&
+    cardCount === 0 &&
+    sessionCardTotal === 0
   const totalMinutes =
     (episode?.durationMinutes ?? 0) +
     (todayData?.queue.estimatedMinutes ?? 0) +
@@ -2526,15 +2812,20 @@ export function WordflowApp() {
             icon={Cards01Icon}
             title="Повторить фразы"
             meta={
-              cardsDone
-                ? `${sessionCardTotal} фраз повторено`
-                : todayLoading
-                  ? "Собираем очередь…"
-                  : cardCount > 0
-                    ? `${reviewCount} ${pluralRu(reviewCount, "повторение", "повторения", "повторений")} + ${newCount} ${pluralRu(newCount, "новая", "новые", "новых")} · ~${todayData?.queue.estimatedMinutes ?? 1} мин`
-                    : "На сегодня карточек нет"
+              reviewWasSkipped || legacyEmptyReview
+                ? "На сегодня карточек нет"
+                : cardsDone
+                  ? sessionCardTotal > 0
+                    ? `${sessionCardTotal} ${pluralRu(sessionCardTotal, "фраза повторена", "фразы повторены", "фраз повторено")}`
+                    : "Повторение завершено"
+                  : todayLoading
+                    ? "Собираем очередь…"
+                    : cardCount > 0
+                      ? `${reviewCount} ${pluralRu(reviewCount, "повторение", "повторения", "повторений")} + ${newCount} ${pluralRu(newCount, "новая", "новые", "новых")} · ~${todayData?.queue.estimatedMinutes ?? 1} мин`
+                      : "На сегодня карточек нет"
             }
             done={cardsDone}
+            skipped={reviewWasSkipped || legacyEmptyReview}
             active={activeStep === 1}
             onClick={() => {
               if (cardCount > 0) openReview()
@@ -2609,6 +2900,7 @@ function TaskCard({
   accent,
   action,
   showActionWhenDone = false,
+  skipped = false,
 }: {
   icon: typeof PlayIcon
   title: string
@@ -2621,6 +2913,7 @@ function TaskCard({
   accent: string
   action: string
   showActionWhenDone?: boolean
+  skipped?: boolean
 }) {
   return (
     <article
@@ -2628,8 +2921,10 @@ function TaskCard({
         "group w-full rounded-[22px] border p-4 text-left transition-all",
         active &&
           "border-foreground bg-card shadow-[0_8px_30px_rgba(0,0,0,0.07)] ring-1 ring-foreground",
-        !active && !done && "border-border bg-card opacity-70",
+        !active && !done && !skipped && "border-border bg-card opacity-70",
+        skipped && "border-border bg-card opacity-70",
         done &&
+          !skipped &&
           (showActionWhenDone
             ? "border-border bg-card"
             : "border-transparent bg-muted/50 opacity-65")
@@ -2639,12 +2934,14 @@ function TaskCard({
         <div
           className={cn(
             "grid size-11 shrink-0 place-items-center rounded-2xl",
-            done
-              ? "bg-[#dfeee2] text-[#376f43] dark:bg-[#1d3523] dark:text-[#9fd2a8]"
-              : accent
+            skipped
+              ? "bg-muted text-muted-foreground"
+              : done
+                ? "bg-[#dfeee2] text-[#376f43] dark:bg-[#1d3523] dark:text-[#9fd2a8]"
+                : accent
           )}
         >
-          {done ? <Icon icon={Tick02Icon} /> : <Icon icon={icon} />}
+          {done && !skipped ? <Icon icon={Tick02Icon} /> : <Icon icon={icon} />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
@@ -2657,7 +2954,7 @@ function TaskCard({
               <h3
                 className={cn(
                   active ? "mt-1 font-semibold" : "font-semibold",
-                  done && "text-muted-foreground"
+                  done && !skipped && "text-muted-foreground"
                 )}
               >
                 {title}
@@ -2665,7 +2962,7 @@ function TaskCard({
             </div>
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">{meta}</p>
-          {(!done || showActionWhenDone) && (
+          {!skipped && (!done || showActionWhenDone) && (
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 onClick={onClick}

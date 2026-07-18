@@ -1,7 +1,14 @@
 import { and, eq, sql } from "drizzle-orm"
 
 import { getDb } from "@/db"
-import { phrases, reviewLogs, userCards, userLexemes, users } from "@/db/schema"
+import {
+  dailyPlans,
+  phrases,
+  reviewLogs,
+  userCards,
+  userLexemes,
+  users,
+} from "@/db/schema"
 import { AppError } from "@/server/shared/errors"
 import { reviewFsrsCard, type ReviewRating } from "@/server/srs/fsrs"
 
@@ -21,6 +28,7 @@ export function assertReviewOrder(lastReview: Date | null, answeredAt: Date) {
 
 export async function reviewCard(input: {
   userId: string
+  planId?: string
   cardId: string
   rating: ReviewRating
   clientEventId?: string
@@ -32,9 +40,25 @@ export async function reviewCard(input: {
   const activityAt = input.activityAt ?? new Date()
 
   return db.transaction(async (tx) => {
+    const [ownedPlan] = input.planId
+      ? await tx
+          .select({ id: dailyPlans.id })
+          .from(dailyPlans)
+          .where(
+            and(
+              eq(dailyPlans.id, input.planId),
+              eq(dailyPlans.userId, input.userId)
+            )
+          )
+          .limit(1)
+      : []
+    const dailyPlanId = ownedPlan?.id ?? null
+
     if (input.clientEventId) {
       const [existingReview] = await tx
         .select({
+          id: reviewLogs.id,
+          dailyPlanId: reviewLogs.dailyPlanId,
           cardId: reviewLogs.userCardId,
           due: reviewLogs.dueAfter,
           stability: reviewLogs.stabilityAfter,
@@ -53,6 +77,12 @@ export async function reviewCard(input: {
         .limit(1)
 
       if (existingReview) {
+        if (!existingReview.dailyPlanId && dailyPlanId) {
+          await tx
+            .update(reviewLogs)
+            .set({ dailyPlanId })
+            .where(eq(reviewLogs.id, existingReview.id))
+        }
         return {
           ...existingReview,
           rating: input.rating,
@@ -109,6 +139,7 @@ export async function reviewCard(input: {
 
     await tx.insert(reviewLogs).values({
       clientEventId: input.clientEventId,
+      dailyPlanId,
       userCardId: stored.id,
       rating: result.log.rating,
       reviewedAt: now,

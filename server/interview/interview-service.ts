@@ -451,9 +451,9 @@ export async function replyToInterview(input: {
   if (completed) {
     await completeDailyPlanItem({
       userId: input.userId,
+      planId: context.dailyPlanId,
       episodeId: input.episodeId,
       type: "retell",
-      now,
     })
   }
   const message = completed

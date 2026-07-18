@@ -12,14 +12,18 @@ import {
   enqueuePendingReview,
   flushPendingReviews,
   getPendingReviews,
+  hasReviewsBlockingPlanItemFlush,
   normalizeReviewQueueIndex,
-  type PendingReview,
+  type NewPendingReview,
 } from "@/lib/pending-reviews"
 
-function review(eventId: string): PendingReview {
+const storageKey = "okey-english:pending-reviews:v1"
+
+function review(eventId: string): NewPendingReview {
   return {
     eventId,
     cardId: `card-${eventId}`,
+    planId: "00000000-0000-4000-8000-000000000001",
     rating: "good",
     answeredAt: "2026-07-16T10:00:00.000Z",
   }
@@ -112,6 +116,59 @@ describe("pending review synchronization", () => {
 
     expect(result).toEqual({ synced: 0, discarded: 0, remaining: 1 })
     expect(getPendingReviews()).toEqual([first])
+  })
+
+  it("keeps a new review scoped to its daily plan", () => {
+    const scoped = review("scoped")
+
+    enqueuePendingReview(scoped)
+
+    expect(getPendingReviews()).toEqual([scoped])
+  })
+
+  it("syncs a legacy review without treating a plan id as required", async () => {
+    const legacy = {
+      eventId: "legacy",
+      cardId: "card-legacy",
+      rating: "good",
+      answeredAt: "2026-07-16T10:00:00.000Z",
+    }
+    values.set(storageKey, JSON.stringify([legacy]))
+    telegramFetchMock.mockResolvedValue(response(200))
+
+    const result = await flushPendingReviews()
+
+    expect(result).toEqual({ synced: 1, discarded: 0, remaining: 0 })
+    expect(telegramFetchMock).toHaveBeenCalledWith(
+      "/api/reviews",
+      expect.objectContaining({ body: JSON.stringify(legacy) })
+    )
+  })
+
+  it("blocks completion intents while a legacy review has unknown ownership", () => {
+    values.set(
+      storageKey,
+      JSON.stringify([
+        {
+          eventId: "legacy",
+          cardId: "card-legacy",
+          rating: "good",
+          answeredAt: "2026-07-16T10:00:00.000Z",
+        },
+      ])
+    )
+
+    expect(
+      hasReviewsBlockingPlanItemFlush(["00000000-0000-4000-8000-000000000001"])
+    ).toBe(true)
+  })
+
+  it("does not block an unrelated plan with a scoped review", () => {
+    enqueuePendingReview(review("scoped"))
+
+    expect(
+      hasReviewsBlockingPlanItemFlush(["00000000-0000-4000-8000-000000000099"])
+    ).toBe(false)
   })
 })
 

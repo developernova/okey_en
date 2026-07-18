@@ -41,6 +41,7 @@ describe("POST /api/reviews", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          planId: "00000000-0000-4000-8000-000000000001",
           cardId: "3e39bc31-8a7d-4d0f-a4d6-b0049d0068d3",
           rating: "good",
           eventId: "774b9ccb-5bc8-4f87-9b8b-e44fbd7773fd",
@@ -54,6 +55,12 @@ describe("POST /api/reviews", () => {
     expect(mocks.snapshotDailyReturnGap).toHaveBeenCalledWith(
       "user-id",
       expect.any(Date)
+    )
+    expect(mocks.reviewCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user-id",
+        planId: "00000000-0000-4000-8000-000000000001",
+      })
     )
   })
 })

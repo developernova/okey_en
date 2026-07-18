@@ -10,6 +10,16 @@ function availableToUserCondition() {
   return or(eq(phrases.isActive, true), eq(userCards.isPersonal, true))
 }
 
+export function newCardEligibilityCondition(
+  targetLevels: string[],
+  priorityCutoff: Date
+) {
+  return or(
+    inArray(phrases.cefr, targetLevels),
+    lte(userCards.due, priorityCutoff)
+  )!
+}
+
 export async function ensureEpisodeCards(input: {
   userId: string
   episodeId: string
@@ -155,18 +165,14 @@ export async function buildDailyQueue(input: {
               eq(userCards.userId, input.userId),
               eq(userCards.isSuspended, false),
               availableToUserCondition(),
-              pauseNewCards
-                ? lte(userCards.due, priorityCutoff)
-                : or(
-                    inArray(phrases.cefr, targetLevels),
-                    lte(userCards.due, priorityCutoff)
-                  ),
+              newCardEligibilityCondition(targetLevels, priorityCutoff),
               eq(userCards.reps, 0),
               lte(userCards.due, now)
             )
           )
           .orderBy(asc(userCards.due), asc(phrases.offsetMs))
           .limit(newCardLimit)
+  const shownCardCount = reviews.length + newCards.length
 
   return {
     mode,
@@ -174,11 +180,12 @@ export async function buildDailyQueue(input: {
     totalDueReviews: reviewCount.value,
     shownReviews: reviews.length,
     newCardsPaused: pauseNewCards,
-    estimatedMinutes: Math.max(
-      1,
-      Math.ceil((reviews.length + newCards.length) * 0.4)
-    ),
+    estimatedMinutes:
+      shownCardCount === 0 ? 0 : Math.max(1, Math.ceil(shownCardCount * 0.4)),
     message: isReturnDay ? "С возвращением. Сегодня лёгкий день." : undefined,
     cards: [...reviews, ...newCards],
   }
 }
+
+export type DailyQueue = Awaited<ReturnType<typeof buildDailyQueue>>
+export type DailyQueueCard = DailyQueue["cards"][number]

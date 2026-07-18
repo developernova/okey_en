@@ -71,6 +71,13 @@
       "when": 1784158039178,
       "tag": "0009_remarkable_lockheed",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784381165948,
+      "tag": "0010_natural_warpath",
+      "breakpoints": true
     }
   ]
 }

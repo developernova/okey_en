@@ -6,6 +6,7 @@ import { jsonError } from "@/server/shared/http"
 import { reviewCard } from "@/server/srs/review-card"
 
 const reviewRequestSchema = z.object({
+  planId: z.uuid().optional(),
   cardId: z.uuid(),
   rating: z.enum(["again", "hard", "good"]),
   eventId: z.uuid(),
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
     await snapshotDailyReturnGap(userId, serverNow)
     const result = await reviewCard({
       userId,
+      planId: input.planId,
       cardId: input.cardId,
       rating: input.rating,
       clientEventId: input.eventId,

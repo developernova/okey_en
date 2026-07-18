@@ -296,6 +296,9 @@ export const reviewLogs = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     clientEventId: uuid("client_event_id"),
+    dailyPlanId: uuid("daily_plan_id").references(() => dailyPlans.id, {
+      onDelete: "set null",
+    }),
     userCardId: uuid("user_card_id")
       .notNull()
       .references(() => userCards.id, { onDelete: "cascade" }),
@@ -315,6 +318,10 @@ export const reviewLogs = pgTable(
     uniqueIndex("review_logs_client_event_unique").on(table.clientEventId),
     index("review_logs_card_reviewed_idx").on(
       table.userCardId,
+      table.reviewedAt
+    ),
+    index("review_logs_plan_reviewed_idx").on(
+      table.dailyPlanId,
       table.reviewedAt
     ),
   ]

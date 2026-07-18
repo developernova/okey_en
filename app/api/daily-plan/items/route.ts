@@ -5,6 +5,7 @@ import { completeDailyPlanItem } from "@/server/daily-plan/daily-plan-service"
 import { jsonError } from "@/server/shared/http"
 
 const requestSchema = z.object({
+  planId: z.uuid(),
   episodeId: z.uuid(),
   type: z.enum(["watch", "review", "retell"]),
 })

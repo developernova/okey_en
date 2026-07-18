@@ -28,6 +28,17 @@ describe("dailyQueuePolicy", () => {
 })
 
 describe("dailyNewCardLimit", () => {
+  it("admits up to five new cards on a return day without due reviews", () => {
+    expect(
+      dailyNewCardLimit({
+        isReturnDay: true,
+        pauseNewCards: true,
+        reviewLimit: 25,
+        shownReviews: 0,
+      })
+    ).toBe(5)
+  })
+
   it("keeps the complete return queue within 25 cards", () => {
     expect(
       dailyNewCardLimit({

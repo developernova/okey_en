@@ -1,10 +1,19 @@
 import { telegramFetch } from "@/lib/telegram"
 
-export type PendingReview = {
+type PendingReviewFields = {
   eventId: string
   cardId: string
   rating: "again" | "hard" | "good"
   answeredAt: string
+}
+
+export type PendingReview = PendingReviewFields & {
+  /** Missing only on entries written before reviews were scoped to a plan. */
+  planId?: string
+}
+
+export type NewPendingReview = PendingReviewFields & {
+  planId: string
 }
 
 const storageKey = "okey-english:pending-reviews:v1"
@@ -42,17 +51,25 @@ export function getPendingReviews(): PendingReview[] {
         typeof item.eventId === "string" &&
         typeof item.cardId === "string" &&
         ["again", "hard", "good"].includes(String(item.rating)) &&
-        typeof item.answeredAt === "string"
+        typeof item.answeredAt === "string" &&
+        (item.planId === undefined || typeof item.planId === "string")
     )
   } catch {
     return []
   }
 }
 
-export function enqueuePendingReview(review: PendingReview) {
+export function enqueuePendingReview(review: NewPendingReview) {
   storage()?.setItem(
     storageKey,
     JSON.stringify([...getPendingReviews(), review])
+  )
+}
+
+export function hasReviewsBlockingPlanItemFlush(planIds: Iterable<string>) {
+  const scopedPlans = new Set(planIds)
+  return getPendingReviews().some(
+    (review) => !review.planId || scopedPlans.has(review.planId)
   )
 }
 
