@@ -18,7 +18,7 @@ type StoredCard = {
   lastReview: Date | null
 }
 
-export type ReviewRating = "again" | "hard" | "good"
+export type ReviewRating = "again" | "hard" | "good" | "known"
 
 const scheduler = fsrs({
   request_retention: 0.9,
@@ -50,6 +50,7 @@ function toFsrsCard(card: StoredCard): CardInput {
 function mapRating(rating: ReviewRating) {
   if (rating === "again") return Rating.Again
   if (rating === "hard") return Rating.Hard
+  if (rating === "known") return Rating.Easy
   return Rating.Good
 }
 

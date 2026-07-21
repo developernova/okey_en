@@ -15,6 +15,7 @@ const state = {
   answersCompleted: 1,
   questions: [
     {
+      kind: "factual" as const,
       text: "What did the family make?",
       glossary: [
         { word: "What", lemma: "what", translationRu: "что" },
@@ -25,6 +26,7 @@ const state = {
       ],
     },
     {
+      kind: "retell" as const,
       text: "Who helped with dinner?",
       glossary: [
         { word: "Who", lemma: "who", translationRu: "кто" },
@@ -34,6 +36,7 @@ const state = {
       ],
     },
     {
+      kind: "transfer" as const,
       text: "What happened after dinner?",
       glossary: [
         { word: "What", lemma: "what", translationRu: "что" },

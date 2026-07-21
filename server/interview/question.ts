@@ -26,10 +26,15 @@ export const interviewQuestionSchema = z.preprocess(
     if (!value || typeof value !== "object" || Array.isArray(value))
       return value
     const item = value as Record<string, unknown>
-    return { ...item, text: item.text ?? item.question }
+    return {
+      ...item,
+      text: item.text ?? item.question,
+      kind: item.kind ?? "factual",
+    }
   },
   z
     .object({
+      kind: z.enum(["factual", "retell", "transfer"]),
       text: z.string().min(1).max(300),
       glossary: z.array(questionGlossSchema).min(1).max(40),
     })

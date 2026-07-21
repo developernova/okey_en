@@ -25,6 +25,7 @@ describe("OpenAI interview requests", () => {
                 content: JSON.stringify({
                   questions: [
                     {
+                      kind: "factual",
                       text: "Weather?",
                       glossary: [
                         {
@@ -35,6 +36,7 @@ describe("OpenAI interview requests", () => {
                       ],
                     },
                     {
+                      kind: "retell",
                       text: "Family?",
                       glossary: [
                         {
@@ -45,6 +47,7 @@ describe("OpenAI interview requests", () => {
                       ],
                     },
                     {
+                      kind: "transfer",
                       text: "Travel?",
                       glossary: [
                         {

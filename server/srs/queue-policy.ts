@@ -22,8 +22,6 @@ export function dailyNewCardLimit(input: {
   reviewLimit: number
   shownReviews: number
 }) {
-  if (input.isReturnDay) {
-    return Math.min(5, Math.max(0, input.reviewLimit - input.shownReviews))
-  }
-  return input.pauseNewCards ? 5 : 15
+  if (input.isReturnDay || input.pauseNewCards) return 0
+  return 8
 }

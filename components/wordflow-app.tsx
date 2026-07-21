@@ -56,7 +56,7 @@ type Screen =
   | "interview"
   | "complete"
   | "settings"
-type Rating = "again" | "hard" | "good"
+type Rating = "again" | "hard" | "good" | "known"
 
 type ReviewCardDto = {
   id: string
@@ -88,6 +88,7 @@ type TodayDto = {
   comprehension: {
     percentage: number
     isReady: boolean
+    isEstimated: boolean
     knownLexemeCount: number
   }
   queue: {
@@ -682,6 +683,13 @@ export function WordflowApp() {
   const [placementProgram, setPlacementProgram] = React.useState<string | null>(
     null
   )
+  const [placementResultLevel, setPlacementResultLevel] = React.useState<
+    (typeof placementLevels)[number] | null
+  >(null)
+  const [placementSaving, setPlacementSaving] = React.useState(false)
+  const [placementError, setPlacementError] = React.useState<string | null>(
+    null
+  )
   const [reminderEnabled, setReminderEnabled] = React.useState(true)
   const [reminderSaving, setReminderSaving] = React.useState(false)
   const [reminderError, setReminderError] = React.useState<string | null>(null)
@@ -1210,25 +1218,9 @@ export function WordflowApp() {
 
       if (questionNumber === testLength - 1) {
         const placementLevel = placementLevels[Math.min(3, nextAbility)]
-        void telegramFetch("/api/onboarding/complete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ level: placementLevel }),
-        })
-          .then(async (response) => {
-            const payload = (await response.json()) as {
-              data?: { program?: { title?: string } | null }
-            }
-            if (response.ok) {
-              setPlacementProgram(payload.data?.program?.title ?? null)
-            }
-          })
-          .catch((error) =>
-            console.error("Failed to save placement level", error)
-          )
-        window.localStorage.setItem("okey-english:onboarding-complete", "1")
-        setTelegramCloudFlag("onboarding_complete", "1")
+        setPlacementResultLevel(placementLevel)
         setScreen("result")
+        void savePlacementResult(placementLevel)
       } else {
         const unasked = questions
           .map((item, candidateIndex) => ({ item, candidateIndex }))
@@ -1383,6 +1375,9 @@ export function WordflowApp() {
 
   function startTest() {
     setPlacementProgram(null)
+    setPlacementResultLevel(null)
+    setPlacementSaving(false)
+    setPlacementError(null)
     setQuestion(4)
     setQuestionNumber(0)
     setAbility(1)
@@ -1390,6 +1385,40 @@ export function WordflowApp() {
     setAskedQuestions([4])
     setSelectedAnswer(null)
     setScreen("test")
+  }
+
+  async function savePlacementResult(
+    placementLevel: (typeof placementLevels)[number]
+  ) {
+    setPlacementSaving(true)
+    setPlacementError(null)
+    try {
+      const response = await telegramFetch("/api/onboarding/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level: placementLevel }),
+      })
+      const payload = (await response.json()) as {
+        data?: { program?: { title?: string } | null }
+        error?: { message?: string }
+      }
+      if (!response.ok || !payload.data) {
+        throw new Error(
+          payload.error?.message ?? "Не удалось сохранить результат"
+        )
+      }
+      setPlacementProgram(payload.data.program?.title ?? null)
+      window.localStorage.setItem("okey-english:onboarding-complete", "1")
+      setTelegramCloudFlag("onboarding_complete", "1")
+    } catch (error) {
+      setPlacementError(
+        error instanceof Error
+          ? error.message
+          : "Не удалось сохранить результат"
+      )
+    } finally {
+      setPlacementSaving(false)
+    }
   }
 
   async function openInterview() {
@@ -1912,7 +1941,7 @@ export function WordflowApp() {
               Подбор готов
             </p>
             <h1 className="mt-2 max-w-sm text-[32px] leading-[1.12] font-semibold tracking-tight">
-              Начнём с видео, где тебе знакомо 75–85% слов
+              Начнём с видео, где тебе знакомо примерно 75–85% слов
             </h1>
             <p className="mt-4 max-w-xs text-[15px] leading-6 text-muted-foreground">
               Так смысл уже понятен, а новые фразы можно заметить из контекста.
@@ -1927,7 +1956,9 @@ export function WordflowApp() {
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {placementProgram
                       ? `${placementProgram} · подходит по уровню и покрытию`
-                      : "Подбираем по уровню и покрытию…"}
+                      : placementError
+                        ? "Не удалось сохранить подбор"
+                        : "Подбираем по уровню и покрытию…"}
                   </p>
                 </div>
               </div>
@@ -1936,10 +1967,21 @@ export function WordflowApp() {
           <Button
             size="lg"
             className="h-14 w-full rounded-2xl text-base"
+            disabled={placementSaving || Boolean(placementError)}
             onClick={() => setScreen("reminder")}
           >
-            Продолжить <Icon icon={ArrowRight01Icon} />
+            {placementSaving ? "Сохраняем…" : "Продолжить"}{" "}
+            <Icon icon={ArrowRight01Icon} />
           </Button>
+          {placementError && placementResultLevel && (
+            <button
+              type="button"
+              className="mt-3 text-sm font-semibold text-destructive"
+              onClick={() => void savePlacementResult(placementResultLevel)}
+            >
+              Повторить сохранение
+            </button>
+          )}
         </div>
       </PhoneShell>
     )
@@ -2098,13 +2140,13 @@ export function WordflowApp() {
                     </p>
                     <p className="mt-2 text-[11px] font-medium text-muted-foreground">
                       {program.isPending
-                        ? `Выбрана на завтра · ${program.coverage ?? "—"}% знакомо`
+                        ? `Выбрана на завтра · ${program.coverage ?? "—"}% знакомых слов`
                         : program.isActive
-                          ? `Текущая программа · ${program.coverage ?? "—"}% знакомо`
+                          ? `Текущая программа · ${program.coverage ?? "—"}% знакомых слов`
                           : program.isUnlocked
-                            ? `${program.coverage}% знакомо · можно переключиться`
+                            ? `${program.coverage}% знакомых слов · можно переключиться`
                             : program.hasContent
-                              ? `${program.coverage}% знакомо · откроется при ${program.unlockCoverage}% покрытия`
+                              ? `${program.coverage}% знакомых слов · откроется при ${program.unlockCoverage}% покрытия`
                               : `Откроется при ~${program.unlockCoverage}% покрытия · выпуски готовятся`}
                     </p>
                   </div>
@@ -2616,19 +2658,19 @@ export function WordflowApp() {
                 onClick={() => rateCard("again")}
                 className="h-14 rounded-2xl bg-[#f5e5e2] text-sm font-semibold text-[#8c3e35] dark:bg-[#3b211f] dark:text-[#efaaa1]"
               >
-                Забыл
+                Не вспомнил
               </button>
               <button
                 onClick={() => rateCard("hard")}
                 className="h-14 rounded-2xl bg-[#f4edcf] text-sm font-semibold text-[#7b671d] dark:bg-[#39331d] dark:text-[#e7d783]"
               >
-                Трудно
+                С трудом
               </button>
               <button
                 onClick={() => rateCard("good")}
                 className="h-14 rounded-2xl bg-[#dfeee2] text-sm font-semibold text-[#376f43] dark:bg-[#1d3523] dark:text-[#9fd2a8]"
               >
-                Легко
+                Вспомнил
               </button>
             </div>
           ) : (
@@ -2640,6 +2682,13 @@ export function WordflowApp() {
               Показать ответ
             </Button>
           )}
+          <button
+            type="button"
+            onClick={() => rateCard("known")}
+            className="mt-3 h-10 rounded-xl text-sm font-medium text-muted-foreground"
+          >
+            Уже знаю — не повторять
+          </button>
         </div>
       </PhoneShell>
     )
@@ -2663,7 +2712,7 @@ export function WordflowApp() {
             </p>
             <h1 className="mt-2 text-[34px] font-semibold tracking-tight">
               {strengthenedCardTotal > 0
-                ? `${strengthenedCardTotal} ${pluralRu(strengthenedCardTotal, "фраза укреплена", "фразы укреплены", "фраз укреплено")}`
+                ? `${strengthenedCardTotal} ${pluralRu(strengthenedCardTotal, "фраза пройдена", "фразы пройдены", "фраз пройдено")}`
                 : "На сегодня всё"}
             </h1>
             <p className="mt-4 max-w-xs text-[15px] leading-6 text-muted-foreground">
@@ -2689,7 +2738,7 @@ export function WordflowApp() {
                     : "После калибровки"}
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  понимание видео
+                  знакомые слова в видео
                 </div>
               </div>
             </div>
@@ -2798,7 +2847,7 @@ export function WordflowApp() {
             </span>
             <span className="text-xs font-semibold">
               {todayData?.comprehension.isReady
-                ? `${todayData.comprehension.percentage}% знакомо`
+                ? `${todayData.comprehension.percentage}% знакомых слов`
                 : "Калибруем"}
             </span>
           </div>
@@ -2814,7 +2863,9 @@ export function WordflowApp() {
           </div>
           <p className="mt-3 text-sm leading-5">
             {todayData?.comprehension.isReady
-              ? "Покрытие рассчитано по твоему словарю."
+              ? todayData.comprehension.isEstimated
+                ? "Предварительная оценка по уровню; она уточняется после повторений."
+                : "Покрытие рассчитано по подтверждённому словарю."
               : "Процент появится после калибровки словаря."}
           </p>
         </section>

@@ -126,6 +126,14 @@ describe("pending review synchronization", () => {
     expect(getPendingReviews()).toEqual([scoped])
   })
 
+  it("keeps the already-known action in the offline queue", () => {
+    const known = { ...review("known"), rating: "known" as const }
+
+    enqueuePendingReview(known)
+
+    expect(getPendingReviews()).toEqual([known])
+  })
+
   it("syncs a legacy review without treating a plan id as required", async () => {
     const legacy = {
       eventId: "legacy",

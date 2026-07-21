@@ -8,7 +8,7 @@ import { reviewCard } from "@/server/srs/review-card"
 const reviewRequestSchema = z.object({
   planId: z.uuid().optional(),
   cardId: z.uuid(),
-  rating: z.enum(["again", "hard", "good"]),
+  rating: z.enum(["again", "hard", "good", "known"]),
   eventId: z.uuid(),
   answeredAt: z.string().datetime({ offset: true }),
 })

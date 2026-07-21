@@ -8,6 +8,7 @@ import {
 
 describe("interview question glossary", () => {
   const question = {
+    kind: "factual" as const,
     text: "What chores did they do?",
     glossary: [
       { word: "What", lemma: "what", translationRu: "какие" },
@@ -49,6 +50,7 @@ describe("interview question glossary", () => {
         { word: "happened", lemma: "happen", russian: "произошло" },
       ],
     })
+    expect(parsed.kind).toBe("factual")
     expect(parsed.text).toBe("What happened?")
     expect(parsed.glossary[0]?.translationRu).toBe("что")
   })

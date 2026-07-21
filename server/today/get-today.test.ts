@@ -64,6 +64,9 @@ describe("getToday", () => {
     mocks.calculateComprehension.mockReset().mockResolvedValue({
       percentage: 0,
       knownLexemeCount: 0,
+      totalOccurrences: 0,
+      isEstimated: false,
+      isReady: false,
     })
     mocks.completeDailyPlanItem.mockReset().mockResolvedValue({
       status: "supporting",

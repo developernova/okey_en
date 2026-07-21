@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { newFsrsCard, reviewFsrsCard } from "./fsrs"
 
 describe("three-button FSRS mapping", () => {
-  it.each(["again", "hard", "good"] as const)(
+  it.each(["again", "hard", "good", "known"] as const)(
     "schedules a card rated %s",
     (rating) => {
       const now = new Date("2026-07-13T09:00:00.000Z")

@@ -106,7 +106,8 @@ export async function getToday(
     },
     comprehension: {
       percentage: comprehension.percentage,
-      isReady: comprehension.knownLexemeCount >= 50,
+      isReady: comprehension.isReady,
+      isEstimated: comprehension.isEstimated,
       knownLexemeCount: comprehension.knownLexemeCount,
     },
     queue: {

@@ -144,6 +144,7 @@ export async function reviewCard(input: {
         lapses: result.card.lapses,
         state: result.card.state,
         lastReview: result.card.last_review,
+        ...(input.rating === "known" ? { isSuspended: true } : {}),
         updatedAt: now,
       })
       .where(eq(userCards.id, stored.id))
@@ -164,7 +165,13 @@ export async function reviewCard(input: {
     })
 
     const lexicalConfidence =
-      input.rating === "good" ? 0.9 : input.rating === "hard" ? 0.65 : 0.2
+      input.rating === "known"
+        ? 1
+        : input.rating === "good"
+          ? 0.9
+          : input.rating === "hard"
+            ? 0.65
+            : 0.2
     await tx
       .insert(userLexemes)
       .values({
@@ -172,7 +179,8 @@ export async function reviewCard(input: {
         lemma: stored.lemma,
         source: "review",
         confidence: lexicalConfidence,
-        learnedAt: input.rating === "good" ? now : null,
+        learnedAt:
+          input.rating === "good" || input.rating === "known" ? now : null,
         updatedAt: now,
       })
       .onConflictDoUpdate({
@@ -198,6 +206,7 @@ export async function reviewCard(input: {
       scheduledDays: result.card.scheduled_days,
       stability: result.card.stability,
       difficulty: result.card.difficulty,
+      suspended: input.rating === "known",
       duplicate: false,
     }
   })

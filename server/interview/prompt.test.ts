@@ -56,7 +56,7 @@ describe("interview prompts", () => {
     )
   })
 
-  it("plans exactly three questions from the transcript", () => {
+  it("plans factual, retelling, and transfer questions", () => {
     const messages = buildQuestionPlanMessages("The family made dinner.", {
       level: "A2",
       knownVocabulary: ["family", "make", "dinner"],
@@ -64,8 +64,11 @@ describe("interview prompts", () => {
     expect(messages[1]?.content).toContain("The family made dinner")
     expect(messages[1]?.content).toContain("family, make, dinner")
     expect(messages.at(-1)?.content).toContain(
-      "Plan three distinct content questions"
+      "factual, retelling, and personal-transfer"
     )
+    expect(messages[0]?.content).toContain("own words")
+    expect(messages[0]?.content).toContain("reusable expression verbatim")
+    expect(messages[0]?.content).toContain("kind=transfer")
     expect(messages[0]?.content).toContain("must not test unseen vocabulary")
     expect(messages[0]?.content).toContain("every English word")
   })

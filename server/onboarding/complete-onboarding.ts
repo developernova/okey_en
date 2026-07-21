@@ -10,10 +10,10 @@ import {
   userProgramProgress,
   users,
 } from "@/db/schema"
+import { frequencyWeightedEstimatedCoverage } from "@/server/progress/lexical-knowledge"
 
-const levels = ["A1", "A2", "B1", "B2"] as const
 const courseLevels = ["A1", "A2", "B1", "B2", "C1", "C2"] as const
-export type PlacementLevel = (typeof levels)[number]
+export type PlacementLevel = "A1" | "A2" | "B1" | "B2"
 
 function levelDistance(level: PlacementLevel, min: string, max: string) {
   const target = courseLevels.indexOf(level)
@@ -35,13 +35,6 @@ export async function completeOnboarding(
   level: PlacementLevel
 ) {
   const db = getDb()
-  const levelIndex = levels.indexOf(level)
-  const knownLevels = levels.slice(0, levelIndex + 1)
-  const vocabulary = await db
-    .select({ lemma: lexemes.lemma, cefr: lexemes.cefr })
-    .from(lexemes)
-    .where(inArray(lexemes.cefr, knownLevels))
-
   const readyEpisodes = await db
     .select({
       episodeId: episodes.id,
@@ -73,25 +66,17 @@ export async function completeOnboarding(
             episodeId: episodeLexemes.episodeId,
             lemma: episodeLexemes.lemma,
             frequency: episodeLexemes.frequency,
+            cefr: lexemes.cefr,
           })
           .from(episodeLexemes)
+          .leftJoin(lexemes, eq(lexemes.lemma, episodeLexemes.lemma))
           .where(inArray(episodeLexemes.episodeId, firstEpisodeIds))
       : []
-  const knownVocabulary = new Set(vocabulary.map((item) => item.lemma))
-  const coverageByEpisode = new Map<string, { known: number; total: number }>()
-  for (const item of episodeVocabulary) {
-    const coverage = coverageByEpisode.get(item.episodeId) ?? {
-      known: 0,
-      total: 0,
-    }
-    coverage.total += item.frequency
-    if (knownVocabulary.has(item.lemma)) coverage.known += item.frequency
-    coverageByEpisode.set(item.episodeId, coverage)
-  }
-  const coverage = (episodeId: string) => {
-    const value = coverageByEpisode.get(episodeId)
-    return !value?.total ? 0 : Math.round((value.known / value.total) * 100)
-  }
+  const coverage = (episodeId: string) =>
+    frequencyWeightedEstimatedCoverage(
+      episodeVocabulary.filter((item) => item.episodeId === episodeId),
+      level
+    )
   const recommended = firstEpisodeByProgram.sort((a, b) => {
     const byLevel =
       levelDistance(level, a.levelMin, a.levelMax) -
@@ -109,6 +94,14 @@ export async function completeOnboarding(
       .update(users)
       .set({ levelEstimate: level, updatedAt: new Date() })
       .where(eq(users.id, userId))
+    await tx
+      .delete(userLexemes)
+      .where(
+        and(
+          eq(userLexemes.userId, userId),
+          eq(userLexemes.source, "placement_test")
+        )
+      )
 
     if (recommended) {
       await tx
@@ -133,34 +126,11 @@ export async function completeOnboarding(
           },
         })
     }
-
-    for (let index = 0; index < vocabulary.length; index += 500) {
-      const batch = vocabulary.slice(index, index + 500)
-      if (batch.length === 0) continue
-      await tx
-        .insert(userLexemes)
-        .values(
-          batch.map((item) => ({
-            userId,
-            lemma: item.lemma,
-            source: "placement_test" as const,
-            confidence: item.cefr === level ? 0.82 : 0.95,
-          }))
-        )
-        .onConflictDoUpdate({
-          target: [userLexemes.userId, userLexemes.lemma],
-          set: {
-            source: "placement_test",
-            confidence: sql`excluded.confidence`,
-            updatedAt: new Date(),
-          },
-        })
-    }
   })
 
   return {
     level,
-    knownLexemes: vocabulary.length,
+    knownLexemes: 0,
     program: recommended
       ? {
           id: recommended.programId,

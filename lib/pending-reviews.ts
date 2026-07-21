@@ -3,7 +3,7 @@ import { telegramFetch } from "@/lib/telegram"
 type PendingReviewFields = {
   eventId: string
   cardId: string
-  rating: "again" | "hard" | "good"
+  rating: "again" | "hard" | "good" | "known"
   answeredAt: string
 }
 
@@ -18,7 +18,7 @@ export type NewPendingReview = PendingReviewFields & {
 
 const storageKey = "okey-english:pending-reviews:v1"
 const discardableStatuses = new Set([400, 404, 409, 410, 422])
-// A daily review session may contain up to 15 cards. On a mobile connection,
+// A daily review session may contain up to eight new cards plus due reviews.
 // sending their idempotent events one by one can legitimately take longer than
 // three seconds, even when every request succeeds. Keep the per-request bound
 // below, but give a foreground flush enough time to finish a whole session.
@@ -54,7 +54,7 @@ export function getPendingReviews(): PendingReview[] {
         item !== null &&
         typeof item.eventId === "string" &&
         typeof item.cardId === "string" &&
-        ["again", "hard", "good"].includes(String(item.rating)) &&
+        ["again", "hard", "good", "known"].includes(String(item.rating)) &&
         typeof item.answeredAt === "string" &&
         (item.planId === undefined || typeof item.planId === "string")
     )

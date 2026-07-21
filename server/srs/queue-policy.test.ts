@@ -28,7 +28,7 @@ describe("dailyQueuePolicy", () => {
 })
 
 describe("dailyNewCardLimit", () => {
-  it("admits up to five new cards on a return day without due reviews", () => {
+  it("pauses new cards on a return day", () => {
     expect(
       dailyNewCardLimit({
         isReturnDay: true,
@@ -36,10 +36,10 @@ describe("dailyNewCardLimit", () => {
         reviewLimit: 25,
         shownReviews: 0,
       })
-    ).toBe(5)
+    ).toBe(0)
   })
 
-  it("keeps the complete return queue within 25 cards", () => {
+  it("does not add new cards even when the capped return queue has room", () => {
     expect(
       dailyNewCardLimit({
         isReturnDay: true,
@@ -55,6 +55,28 @@ describe("dailyNewCardLimit", () => {
         reviewLimit: 25,
         shownReviews: 22,
       })
-    ).toBe(3)
+    ).toBe(0)
+  })
+
+  it("uses at most eight new cards on a normal day", () => {
+    expect(
+      dailyNewCardLimit({
+        isReturnDay: false,
+        pauseNewCards: false,
+        reviewLimit: 100,
+        shownReviews: 0,
+      })
+    ).toBe(8)
+  })
+
+  it("pauses new cards when the due backlog is too large", () => {
+    expect(
+      dailyNewCardLimit({
+        isReturnDay: false,
+        pauseNewCards: true,
+        reviewLimit: 100,
+        shownReviews: 26,
+      })
+    ).toBe(0)
   })
 })

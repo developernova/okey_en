@@ -74,7 +74,7 @@ Hiding an episode remains the normal reversible action. Permanent deletion is av
 
 ## Learning APIs
 
-- `GET /api/daily-plan?episodeId=<uuid>` provisions episode cards and returns due reviews plus up to 15 new cards.
+- `GET /api/daily-plan?episodeId=<uuid>` provisions episode cards and returns due reviews plus up to 8 new cards.
 - `GET /api/today` creates or restores today's three-step plan. `POST /api/daily-plan/items` completes `watch`, `review`, or `retell` idempotently.
 - `POST /api/reviews` accepts an idempotent card rating with `eventId`, `cardId`, `rating`, and `answeredAt`.
 - `GET /api/progress/comprehension?episodeId=<uuid>` returns frequency-weighted vocabulary coverage.

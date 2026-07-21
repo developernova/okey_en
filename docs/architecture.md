@@ -43,12 +43,13 @@ The UI's three answers map to FSRS as follows:
 - `again` → `Rating.Again`
 - `hard` → `Rating.Hard`
 - `good` → `Rating.Good`
+- `known` → `Rating.Easy` and suspend the card from future queues
 
 Every review updates `user_cards` and appends an immutable `review_logs` row in one transaction.
 
 The daily queue is a product policy layered above FSRS:
 
-- 0–1 day gap: normal due queue and up to 15 new cards;
+- 0–1 day gap: normal due queue and up to 8 new cards;
 - 2–13 day gap: at most 25 urgent reviews, new cards paused;
 - 14+ days: the same cap with `soft_restart` mode.
 
@@ -62,7 +63,7 @@ Coverage is frequency weighted:
 known token occurrences / all token occurrences
 ```
 
-A lexeme counts as known when it is explicitly known with confidence ≥ 0.8 or its FSRS card has retrievability ≥ 0.8. The current tokenizer boundary is intentionally isolated in `server/content/text.ts`; replace it with a production English lemmatizer before calculating public-facing percentages over a large catalogue.
+A lexeme counts as verified known when it is explicitly known with confidence ≥ 0.8 or its FSRS card has retrievability ≥ 0.8. Before enough individual evidence exists, the placement level contributes a probabilistic CEFR prior instead of marking every lower-level word as known. The displayed percentage is lexical coverage, not a claim about listening comprehension. The current tokenizer boundary is intentionally isolated in `server/content/text.ts`; replace it with a production English lemmatizer before calculating public-facing percentages over a large catalogue.
 
 ## Daily plan and progression
 

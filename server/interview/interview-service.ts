@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte } from "drizzle-orm"
+import { and, asc, desc, eq, gte, ne } from "drizzle-orm"
 import { randomUUID } from "node:crypto"
 
 import { getDb } from "@/db"
@@ -12,6 +12,7 @@ import {
   users,
 } from "@/db/schema"
 import { completeDailyPlanItem } from "@/server/daily-plan/daily-plan-service"
+import { isSubstantiveInterviewAnswer } from "@/server/interview/answer"
 import {
   generateContinuationTurn,
   generateInterviewAnalysis,
@@ -96,7 +97,11 @@ async function getInterviewContext(
     .select({ lemma: userLexemes.lemma })
     .from(userLexemes)
     .where(
-      and(eq(userLexemes.userId, userId), gte(userLexemes.confidence, 0.8))
+      and(
+        eq(userLexemes.userId, userId),
+        gte(userLexemes.confidence, 0.8),
+        ne(userLexemes.source, "placement_test")
+      )
     )
     .orderBy(desc(userLexemes.confidence), asc(userLexemes.lemma))
     .limit(1_200)
@@ -423,6 +428,53 @@ export async function replyToInterview(input: {
   }
 
   assertQuestionState(state)
+  if (!isSubstantiveInterviewAnswer(answer)) {
+    const message =
+      "Ответь одной короткой фразой по-английски — можно простыми словами."
+    const conversation = recentConversation([
+      ...state.conversation,
+      { role: "user" as const, content: answer },
+      { role: "assistant" as const, content: message },
+    ])
+    const sessionToken = signInterviewState({
+      ...state,
+      conversation,
+      issuedAt: now.getTime(),
+    })
+    const messages: StoredInterviewMessage[] = [
+      ...storedMessages,
+      userMessage,
+      {
+        id: randomUUID(),
+        role: "assistant",
+        text: message,
+      },
+    ]
+    await saveStoredSession({
+      userId: input.userId,
+      dailyPlanId: context.dailyPlanId,
+      episodeId: input.episodeId,
+      sessionToken,
+      messages,
+      answersCompleted: state.answersCompleted,
+      completed: false,
+      now,
+    })
+
+    return {
+      message,
+      correction: null,
+      reaction: null,
+      queuedWord: null,
+      completed: false,
+      answersCompleted: state.answersCompleted,
+      questionNumber: state.answersCompleted + 1,
+      questionWords: [],
+      sessionToken,
+      messages,
+      restored: false,
+    }
+  }
   const answersCompleted = state.answersCompleted + 1
   const currentQuestion = state.questions[state.answersCompleted]
   const conversation = [
@@ -433,6 +485,7 @@ export async function replyToInterview(input: {
     episodeId: input.episodeId,
     transcript: context.transcript,
     question: currentQuestion.text,
+    questionKind: currentQuestion.kind,
     answer,
   })
   const unknownGloss = turn.unknownWord

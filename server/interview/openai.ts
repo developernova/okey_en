@@ -21,6 +21,13 @@ const questionPlanSchema = z.preprocess(
     .object({ questions: z.array(interviewQuestionSchema).length(3) })
     .refine(
       ({ questions }) =>
+        questions[0]?.kind === "factual" &&
+        questions[1]?.kind === "retell" &&
+        questions[2]?.kind === "transfer",
+      "Questions must be factual, retell, and transfer in that order"
+    )
+    .refine(
+      ({ questions }) =>
         new Set(questions.map((question) => question.text.trim().toLowerCase()))
           .size === 3,
       "Questions must be distinct"
@@ -62,6 +69,10 @@ const questionPlanJsonSchema = {
         type: "object",
         additionalProperties: false,
         properties: {
+          kind: {
+            type: "string",
+            enum: ["factual", "retell", "transfer"],
+          },
           text: { type: "string", minLength: 1, maxLength: 300 },
           glossary: {
             type: "array",
@@ -83,7 +94,7 @@ const questionPlanJsonSchema = {
             },
           },
         },
-        required: ["text", "glossary"],
+        required: ["kind", "text", "glossary"],
       },
     },
   },
@@ -276,6 +287,7 @@ export function generateInterviewAnalysis(input: {
   episodeId: string
   transcript: string
   question: string
+  questionKind: "factual" | "retell" | "transfer"
   answer: string
 }) {
   const correction = requestStructured({
@@ -286,14 +298,17 @@ export function generateInterviewAnalysis(input: {
     responseSchema: languageCorrectionSchema,
     maxTokens: 180,
   })
-  const reaction = requestStructured({
-    episodeId: input.episodeId,
-    messages: buildFactualReactionMessages(input),
-    schemaName: "video_interview_factual_reaction",
-    jsonSchema: factualReactionJsonSchema,
-    responseSchema: factualReactionSchema,
-    maxTokens: 140,
-  }).catch(() => ({ reaction: null }))
+  const reaction =
+    input.questionKind === "transfer"
+      ? Promise.resolve({ reaction: null })
+      : requestStructured({
+          episodeId: input.episodeId,
+          messages: buildFactualReactionMessages(input),
+          schemaName: "video_interview_factual_reaction",
+          jsonSchema: factualReactionJsonSchema,
+          responseSchema: factualReactionSchema,
+          maxTokens: 140,
+        }).catch(() => ({ reaction: null }))
 
   return Promise.all([correction, reaction]).then(([language, factual]) => ({
     correction: language.correction,
