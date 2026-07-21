@@ -698,6 +698,9 @@ export function WordflowApp() {
     React.useState<PlanItemType | null>(null)
   const [reviewCompletionPending, setReviewCompletionPending] =
     React.useState(false)
+  const [reviewCompletionError, setReviewCompletionError] = React.useState<
+    string | null
+  >(null)
   const [programSettings, setProgramSettings] = React.useState<
     ProgramSettingDto[] | null
   >(null)
@@ -915,6 +918,7 @@ export function WordflowApp() {
           setCardIndex(0)
           setRevealed(false)
           setReviewCompletionPending(false)
+          setReviewCompletionError(null)
           if (screenRef.current === "complete") setScreen("today")
           setSessionCardTotal(
             today.queue.reviewStep?.status === "skipped"
@@ -1245,17 +1249,21 @@ export function WordflowApp() {
     }, 460)
   }
 
-  async function finishReviewStep() {
+  const finishReviewStep = React.useCallback(async () => {
     const planId = todayData?.plan.id
     if (!planId || reviewCompletionInFlight.current) return
 
     reviewCompletionInFlight.current = true
     setPlanItemSaving("review")
     setTodayError(null)
+    setReviewCompletionError(null)
     try {
       await syncPendingReviews(false)
       if (getPendingReviews().some((review) => review.planId === planId)) {
         setTodayError("Не удалось синхронизировать все оценки карточек")
+        setReviewCompletionError(
+          "Не удалось отправить все оценки на сервер. Они сохранены на устройстве и будут отправлены автоматически."
+        )
         return
       }
 
@@ -1263,6 +1271,7 @@ export function WordflowApp() {
       if (sync.stale.some((item) => item.planId === planId)) {
         await reconcileTodayAfterMutation()
         setReviewCompletionPending(false)
+        setReviewCompletionError(null)
         setScreen("today")
         return
       }
@@ -1272,7 +1281,12 @@ export function WordflowApp() {
         if (!getPendingPlanItems().some((item) => item.planId === planId)) {
           await reconcileTodayAfterMutation()
           setReviewCompletionPending(false)
+          setReviewCompletionError(null)
           setScreen("today")
+        } else {
+          setReviewCompletionError(
+            "Не удалось подтвердить шаг на сервере. Повторим автоматически, как только связь восстановится."
+          )
         }
         return
       }
@@ -1280,11 +1294,13 @@ export function WordflowApp() {
       const freshToday = await reconcileTodayAfterMutation()
       if (!freshToday || freshToday.plan.id !== planId) {
         setReviewCompletionPending(false)
+        setReviewCompletionError(null)
         setScreen("today")
         return
       }
 
       setReviewCompletionPending(false)
+      setReviewCompletionError(null)
       setCardIndex(0)
       setRevealed(false)
       setScreen(
@@ -1294,11 +1310,32 @@ export function WordflowApp() {
           ? "complete"
           : "today"
       )
+    } catch {
+      setReviewCompletionError(
+        "Не удалось подтвердить шаг на сервере. Повторим автоматически, как только связь восстановится."
+      )
     } finally {
       reviewCompletionInFlight.current = false
       if (!planItemSaveInFlight.current) setPlanItemSaving(null)
     }
-  }
+  }, [
+    reconcileTodayAfterMutation,
+    syncPendingPlanItems,
+    syncPendingReviews,
+    todayData?.plan.id,
+  ])
+
+  React.useEffect(() => {
+    if (screen !== "review" || !reviewCompletionPending) return
+
+    const retry = () => void finishReviewStep()
+    const interval = window.setInterval(retry, 5_000)
+    window.addEventListener("online", retry)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener("online", retry)
+    }
+  }, [finishReviewStep, reviewCompletionPending, screen])
 
   function rateCard(rating: Rating) {
     const reviewQueue = todayData?.queue.cards ?? []
@@ -1328,6 +1365,7 @@ export function WordflowApp() {
     const isLastCard = activeCardIndex === reviewQueue.length - 1
     if (isLastCard) {
       enqueuePendingPlanItem({ planId, episodeId, type: "review" })
+      setReviewCompletionError(null)
     }
     const haptics = getTelegramWebApp()?.HapticFeedback
     if (rating === "again") haptics?.notificationOccurred("warning")
@@ -2498,7 +2536,8 @@ export function WordflowApp() {
               <p className="mt-2 text-sm leading-5 text-muted-foreground">
                 {planItemSaving === "review"
                   ? "Это займёт несколько секунд."
-                  : "Не удалось подтвердить шаг на сервере. Можно повторить без повторной оценки карточек."}
+                  : (reviewCompletionError ??
+                    "Не удалось подтвердить шаг на сервере. Можно повторить без повторной оценки карточек.")}
               </p>
               {planItemSaving !== "review" && (
                 <Button

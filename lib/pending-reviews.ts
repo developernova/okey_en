@@ -18,7 +18,11 @@ export type NewPendingReview = PendingReviewFields & {
 
 const storageKey = "okey-english:pending-reviews:v1"
 const discardableStatuses = new Set([400, 404, 409, 410, 422])
-const DEFAULT_FLUSH_BUDGET_MS = 3_000
+// A daily review session may contain up to 15 cards. On a mobile connection,
+// sending their idempotent events one by one can legitimately take longer than
+// three seconds, even when every request succeeds. Keep the per-request bound
+// below, but give a foreground flush enough time to finish a whole session.
+const DEFAULT_FLUSH_BUDGET_MS = 10_000
 const MAX_REVIEW_REQUEST_MS = 3_000
 
 export type PendingReviewFlushResult = {
