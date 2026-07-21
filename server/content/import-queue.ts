@@ -280,10 +280,11 @@ async function scheduleNextPendingImport() {
 
 async function pausePendingImportsAfterRateLimit() {
   const resumeAt = new Date(Date.now() + 10 * 60_000)
+  const resumeAtSql = resumeAt.toISOString()
   await getDb()
     .update(ingestionJobs)
     .set({
-      nextAttemptAt: sql`greatest(coalesce(${ingestionJobs.nextAttemptAt}, ${resumeAt}), ${resumeAt})`,
+      nextAttemptAt: sql`greatest(coalesce(${ingestionJobs.nextAttemptAt}, ${resumeAtSql}), ${resumeAtSql})`,
     })
     .where(
       and(

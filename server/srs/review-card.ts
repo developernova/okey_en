@@ -26,6 +26,17 @@ export function assertReviewOrder(lastReview: Date | null, answeredAt: Date) {
   }
 }
 
+export function reviewActivityUpdateValues(activityAt: Date) {
+  // Values interpolated into a raw Drizzle SQL fragment bypass the timestamp
+  // column's normal Date serializer. postgres-js therefore receives a Date in
+  // the production bundle, where it expects a string or Buffer.
+  const activityAtSql = activityAt.toISOString()
+  return {
+    lastActiveAt: sql`greatest(coalesce(${users.lastActiveAt}, ${activityAtSql}), ${activityAtSql})`,
+    updatedAt: activityAt,
+  }
+}
+
 export async function reviewCard(input: {
   userId: string
   planId?: string
@@ -176,10 +187,7 @@ export async function reviewCard(input: {
 
     await tx
       .update(users)
-      .set({
-        lastActiveAt: sql`greatest(coalesce(${users.lastActiveAt}, ${activityAt}), ${activityAt})`,
-        updatedAt: activityAt,
-      })
+      .set(reviewActivityUpdateValues(activityAt))
       .where(eq(users.id, input.userId))
 
     return {
