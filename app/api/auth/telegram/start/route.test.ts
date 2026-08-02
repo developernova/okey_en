@@ -81,7 +81,8 @@ describe("POST /api/auth/telegram/start", () => {
 
       expect(response.status).toBe(500)
       expect(consoleError).toHaveBeenCalledWith(
-        "Unexpected authentication request failure"
+        "Unexpected authentication request failure",
+        { name: "Error" }
       )
       expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
         "must-never-reach-logs"
