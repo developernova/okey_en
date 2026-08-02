@@ -44,9 +44,12 @@ export const lexemeSource = pgEnum("lexeme_source", [
   "manual",
 ])
 
+export const authTokenKind = pgEnum("auth_token_kind", ["access", "refresh"])
+
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   telegramUserId: text("telegram_user_id").unique(),
+  telegramOidcSubject: text("telegram_oidc_subject").unique(),
   firstName: text("first_name"),
   lastName: text("last_name"),
   username: text("username"),
@@ -68,6 +71,112 @@ export const users = pgTable("users", {
     .notNull()
     .defaultNow(),
 })
+
+export const telegramAuthAttempts = pgTable(
+  "telegram_auth_attempts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    stateHash: text("state_hash").notNull(),
+    oidcNonceHash: text("oidc_nonce_hash").notNull(),
+    oidcCodeVerifier: text("oidc_code_verifier"),
+    handoffCodeChallenge: text("handoff_code_challenge").notNull(),
+    handoffCodeHash: text("handoff_code_hash"),
+    platform: text("platform").notNull(),
+    deviceId: text("device_id"),
+    deviceName: text("device_name"),
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    handoffExpiresAt: timestamp("handoff_expires_at", {
+      withTimezone: true,
+    }),
+    callbackStartedAt: timestamp("callback_started_at", {
+      withTimezone: true,
+    }),
+    callbackCompletedAt: timestamp("callback_completed_at", {
+      withTimezone: true,
+    }),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("telegram_auth_attempts_state_hash_unique").on(table.stateHash),
+    uniqueIndex("telegram_auth_attempts_handoff_code_hash_unique").on(
+      table.handoffCodeHash
+    ),
+    index("telegram_auth_attempts_expires_at_idx").on(table.expiresAt),
+  ]
+)
+
+export const authSessions = pgTable(
+  "auth_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    platform: text("platform").notNull(),
+    deviceId: text("device_id"),
+    deviceName: text("device_name"),
+    absoluteExpiresAt: timestamp("absolute_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("auth_sessions_user_revoked_idx").on(table.userId, table.revokedAt),
+    index("auth_sessions_absolute_expires_at_idx").on(table.absoluteExpiresAt),
+  ]
+)
+
+export const authTokens = pgTable(
+  "auth_tokens",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => authSessions.id, { onDelete: "cascade" }),
+    kind: authTokenKind("kind").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("auth_tokens_session_kind_expires_at_idx").on(
+      table.sessionId,
+      table.kind,
+      table.expiresAt
+    ),
+    index("auth_tokens_expires_at_idx").on(table.expiresAt),
+  ]
+)
+
+export const authRateLimitBuckets = pgTable(
+  "auth_rate_limit_buckets",
+  {
+    key: text("key").primaryKey(),
+    requestCount: integer("request_count").notNull(),
+    windowStartedAt: timestamp("window_started_at", {
+      withTimezone: true,
+    }).notNull(),
+    windowExpiresAt: timestamp("window_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("auth_rate_limit_buckets_expires_at_idx").on(table.windowExpiresAt),
+  ]
+)
 
 export const programs = pgTable("programs", {
   id: uuid("id").defaultRandom().primaryKey(),

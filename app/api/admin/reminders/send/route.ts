@@ -1,5 +1,6 @@
 import { after } from "next/server"
 
+import { cleanupExpiredAuthRecords } from "@/server/auth/auth-maintenance"
 import { env } from "@/server/config/env"
 import { startImportWorker } from "@/server/content/import-queue"
 import { sendDueReminders } from "@/server/reminders/reminder-service"
@@ -16,8 +17,11 @@ export async function POST(request: Request) {
     // deploy/restart. Register it before reminder work so one Telegram failure
     // cannot prevent queue recovery.
     after(() => startImportWorker())
-    const result = await sendDueReminders()
-    return Response.json({ data: result })
+    const [result, authCleanup] = await Promise.all([
+      sendDueReminders(),
+      cleanupExpiredAuthRecords(),
+    ])
+    return Response.json({ data: { ...result, authCleanup } })
   } catch (error) {
     return jsonError(error)
   }

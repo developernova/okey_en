@@ -89,6 +89,26 @@ Voice answers are best-effort and remain on a separate private path. Supported T
 
 In Telegram, the client automatically sends raw `Telegram.WebApp.initData` and the device's IANA timezone with every learner API request. The server verifies the init-data HMAC signature and 24-hour freshness using `TELEGRAM_BOT_TOKEN`, validates the timezone, then creates or restores the matching row in `users`. The verified WebApp profile fields (name, username, language, Premium and messaging/menu flags, and photo URL when Telegram provides it) are refreshed on every authenticated request; raw `initData` is never stored. In production, requests without valid `initData` fail closed. Browser development continues to use `DEV_USER_ID` or the `x-user-id` header when no `initData` is available.
 
+## Native iOS and macOS authentication
+
+Native clients use Telegram's OIDC authorization-code flow instead of sending Mini App `initData`. Configure the bot's allowed callback URL with Telegram, then add:
+
+```dotenv
+TELEGRAM_OIDC_CLIENT_ID=your-telegram-client-id
+TELEGRAM_OIDC_CLIENT_SECRET=replace-with-the-telegram-client-secret
+TELEGRAM_OIDC_CALLBACK_URL=https://api.example.com/api/auth/telegram/callback
+NATIVE_AUTH_RETURN_URL=catchenglish://auth
+```
+
+The native login contract is:
+
+- `POST /api/auth/telegram/start` creates a five-minute attempt and returns the Telegram authorization URL. The request includes the client's SHA-256 handoff challenge, platform, required stable device UUID, and optional device name. Durable PostgreSQL limits allow six starts per device per ten minutes, with a 300-start-per-minute global safety cap.
+- Telegram returns only to the HTTPS server callback. The server validates state, OIDC PKCE, issuer, audience, signature, expiry, and nonce, then redirects `catchenglish://auth` with a one-minute, single-use handoff code.
+- `POST /api/auth/telegram/exchange` proves the client's handoff verifier and returns opaque access and rotating refresh tokens. Access tokens expire after 15 minutes; refresh tokens roll for up to 90 days inside a one-year absolute session.
+- Native learner requests use `Authorization: Bearer <accessToken>`. `POST /api/auth/session/refresh` rotates credentials, with durable daily caps of 120 rotations per session and 300 per user across devices. `GET` and `DELETE /api/auth/session` inspect or revoke the current device session.
+
+Only token hashes are stored for issued credentials. Reusing a consumed refresh token revokes its session. Auth responses are non-cacheable, and provider codes, client secrets, identity tokens, access tokens, and refresh tokens are never logged. The OIDC request includes `telegram:bot_access`, so Telegram can ask the user for explicit permission to receive direct bot messages; reminders remain disabled until the user opts in inside Okey English.
+
 ## Telegram reminders
 
 For browser-only development, add these values to `.env.local`. `TELEGRAM_BOT_TOKEN` becomes required when authenticating real Mini App requests and is also used for reminders:
@@ -100,7 +120,7 @@ REMINDER_CRON_SECRET=replace-with-a-random-secret-of-at-least-16-characters
 TELEGRAM_WEB_APP_URL=https://example.com
 ```
 
-Telegram bots cannot initiate a conversation before a user has opened the bot and sent `/start`. Reminder settings never modify the Telegram identity stored for a user.
+Mini App users who did not grant `telegram:bot_access` still need to open the bot and send `/start` before it can message them. Reminder settings never modify the Telegram identity stored for a user.
 
 Run the dispatcher every minute. It checks a grace window in each user's timezone, skips a completed day, and takes an atomic daily delivery lease before sending:
 
@@ -108,7 +128,7 @@ Run the dispatcher every minute. It checks a grace window in each user's timezon
 npm run reminders:send
 ```
 
-Alternatively, schedule `POST /api/admin/reminders/send` every minute with `x-cron-secret: $REMINDER_CRON_SECRET`. Failed Telegram requests retain their delivery record and retry with bounded backoff; parallel cron calls cannot send the same reminder twice. The same tick wakes the database-backed playlist import queue after a deploy or process restart. For deployment, use a platform cron or durable scheduler; the Next.js process does not rely on an in-process timer for recovery.
+Alternatively, schedule `POST /api/admin/reminders/send` every minute with `x-cron-secret: $REMINDER_CRON_SECRET`. Failed Telegram requests retain their delivery record and retry with bounded backoff; parallel cron calls cannot send the same reminder twice. The same protected tick wakes the database-backed playlist import queue and removes expired Telegram login attempts, expired access-token rows, rate-limit buckets, and absolutely expired native sessions. Consumed refresh-token hashes remain until that absolute session expiry so replay detection is preserved. For deployment, use a platform cron or durable scheduler; the Next.js process does not rely on an in-process timer for recovery.
 
 ## Quality checks
 

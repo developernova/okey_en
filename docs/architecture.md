@@ -36,6 +36,12 @@ Re-importing an episode updates canonical content while preserving phrase IDs wh
 
 `/admin` authenticates against `ADMIN_API_SECRET` once and uses a signed, expiring HttpOnly cookie for subsequent same-origin admin requests. Course and episode visibility is independent from ingestion state: `is_active` controls publication, while `ingestion_status` describes pipeline health. Reversible publication is the default action. An explicit hard-delete path transactionally clears dependent plans and progress pointers before database cascades remove episode-owned learning history.
 
+## Authentication
+
+Telegram Mini App requests keep their existing signed `initData` path. Native iOS and macOS clients use a server-mediated OIDC authorization-code flow with two separate PKCE boundaries: the server owns Telegram's verifier, while the app owns a handoff verifier bound to the login attempt. Telegram redirects to an HTTPS backend callback; the backend returns only a one-minute, single-use code through the fixed `catchenglish://auth` scheme. Provider authorization codes and identity tokens never enter the custom URL.
+
+The callback validates state, RS256 signature through Telegram's JWKS, issuer, audience, expiry, and nonce before linking the stable OIDC subject to the existing Telegram user ID. Native sessions use random opaque credentials stored only as SHA-256 hashes. Access tokens last 15 minutes, refresh tokens rotate on every use, reuse revokes the full session, and an absolute one-year expiry bounds refresh rolling. A valid `Authorization: Bearer` header takes precedence over Mini App credentials and an invalid bearer token never falls back to another identity path. Native login starts consume atomic PostgreSQL fixed-window buckets for the stable device UUID and a global safety cap in the same transaction that creates the attempt. Refresh rotation claims user then session buckets, after token validity checks but before consumption, in its existing transaction; daily caps are 300 per user and 120 per session. The protected minute cron cleans expired attempts, access tokens, and buckets, but deletes refresh-token hashes only through the session cascade at absolute expiry.
+
 ## SRS
 
 The UI's three answers map to FSRS as follows:
