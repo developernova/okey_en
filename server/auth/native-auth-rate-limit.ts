@@ -39,6 +39,20 @@ function rateLimited(input: {
   })
 }
 
+export function nativeAuthFixedWindowSqlValues(now: Date, expiresAt: Date) {
+  // Raw Drizzle SQL fragments bypass the timestamp column serializer. Passing
+  // Date objects here reaches postgres-js unchanged in the standalone bundle,
+  // where wire serialization expects strings or buffers.
+  const nowSql = now.toISOString()
+  const expiresAtSql = expiresAt.toISOString()
+
+  return {
+    requestCount: sql`case when ${authRateLimitBuckets.windowExpiresAt} <= ${nowSql} then 1 else ${authRateLimitBuckets.requestCount} + 1 end`,
+    windowStartedAt: sql`case when ${authRateLimitBuckets.windowExpiresAt} <= ${nowSql} then ${nowSql} else ${authRateLimitBuckets.windowStartedAt} end`,
+    windowExpiresAt: sql`case when ${authRateLimitBuckets.windowExpiresAt} <= ${nowSql} then ${expiresAtSql} else ${authRateLimitBuckets.windowExpiresAt} end`,
+  }
+}
+
 async function claimFixedWindow(
   tx: DatabaseTransaction,
   input: {
@@ -52,6 +66,10 @@ async function claimFixedWindow(
   }
 ) {
   const nextWindowExpiresAt = new Date(input.now.getTime() + input.windowMs)
+  const fixedWindowSqlValues = nativeAuthFixedWindowSqlValues(
+    input.now,
+    nextWindowExpiresAt
+  )
   const [claimed] = await tx
     .insert(authRateLimitBuckets)
     .values({
@@ -64,9 +82,7 @@ async function claimFixedWindow(
     .onConflictDoUpdate({
       target: authRateLimitBuckets.key,
       set: {
-        requestCount: sql`case when ${authRateLimitBuckets.windowExpiresAt} <= ${input.now} then 1 else ${authRateLimitBuckets.requestCount} + 1 end`,
-        windowStartedAt: sql`case when ${authRateLimitBuckets.windowExpiresAt} <= ${input.now} then ${input.now} else ${authRateLimitBuckets.windowStartedAt} end`,
-        windowExpiresAt: sql`case when ${authRateLimitBuckets.windowExpiresAt} <= ${input.now} then ${nextWindowExpiresAt} else ${authRateLimitBuckets.windowExpiresAt} end`,
+        ...fixedWindowSqlValues,
         updatedAt: input.now,
       },
       setWhere: or(

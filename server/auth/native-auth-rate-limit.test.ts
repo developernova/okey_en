@@ -1,8 +1,10 @@
+import { PgDialect } from "drizzle-orm/pg-core"
 import { describe, expect, it, vi } from "vitest"
 
 import {
   consumeNativeAuthRefreshRateLimit,
   consumeNativeAuthStartRateLimit,
+  nativeAuthFixedWindowSqlValues,
   NATIVE_AUTH_DEVICE_START_LIMIT,
   NATIVE_AUTH_DEVICE_WINDOW_MS,
   NATIVE_AUTH_GLOBAL_START_LIMIT,
@@ -10,6 +12,22 @@ import {
   NATIVE_AUTH_SESSION_REFRESH_LIMIT,
   NATIVE_AUTH_USER_REFRESH_LIMIT,
 } from "./native-auth-rate-limit"
+
+describe("native auth fixed-window SQL", () => {
+  it("serializes every raw timestamp parameter as an ISO string", () => {
+    const now = new Date("2026-08-02T19:15:08.806Z")
+    const expiresAt = new Date("2026-08-02T19:16:08.806Z")
+    const values = nativeAuthFixedWindowSqlValues(now, expiresAt)
+    const dialect = new PgDialect()
+    const params = Object.values(values).flatMap(
+      (fragment) => dialect.sqlToQuery(fragment).params
+    )
+
+    expect(params).toContain(now.toISOString())
+    expect(params).toContain(expiresAt.toISOString())
+    expect(params.every((parameter) => !(parameter instanceof Date))).toBe(true)
+  })
+})
 
 type BucketRow = {
   requestCount: number
