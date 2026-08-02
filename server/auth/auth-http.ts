@@ -2,21 +2,6 @@ import { ZodError } from "zod"
 
 import { AppError } from "@/server/shared/errors"
 
-function safeErrorDiagnostic(error: unknown) {
-  if (!(error instanceof Error)) return { name: "UnknownError" }
-
-  const safeName = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(error.name)
-    ? error.name
-    : "Error"
-  const candidateCode = (error as Error & { code?: unknown }).code
-  const safeCode =
-    typeof candidateCode === "string" && /^[A-Z0-9_]{2,32}$/.test(candidateCode)
-      ? candidateCode
-      : undefined
-
-  return safeCode ? { name: safeName, code: safeCode } : { name: safeName }
-}
-
 export function noStore(response: Response) {
   const headers = new Headers(response.headers)
   headers.set("Cache-Control", "no-store")
@@ -84,14 +69,10 @@ export function authJsonError(error: unknown) {
     return response
   }
 
-  // Never log the error message, stack, SQL, request, or provider response:
-  // any of them may contain an authorization code or token. The sanitized
-  // class and machine code are sufficient to distinguish configuration,
-  // transport, and PostgreSQL failures in production.
-  console.error(
-    "Unexpected authentication request failure",
-    safeErrorDiagnostic(error)
-  )
+  // TEMPORARY: full diagnostics for the native-auth test deployment. Revert
+  // this after the runtime failure is identified because provider/database
+  // errors may contain request details.
+  console.error("Unexpected authentication request failure", error)
   return Response.json(
     { error: { code: "INTERNAL_ERROR", message: "Unexpected server error" } },
     { status: 500 }
