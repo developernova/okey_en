@@ -1,14 +1,15 @@
-import { and, eq, ne } from "drizzle-orm"
-
 import { env } from "@/server/config/env"
-import { getDb } from "@/db"
-import { users } from "@/db/schema"
 import {
   configuredAdminSecret,
   hasValidAdminSession,
   secureStringEqual,
 } from "@/server/auth/admin-session"
 import { validateTelegramInitData } from "@/server/auth/telegram-init-data"
+import {
+  resolveMiniAppUserId,
+  updateUserTimezone,
+} from "@/server/auth/telegram-user"
+import { resolveBearerUserId } from "@/server/auth/user-session"
 import { AppError } from "@/server/shared/errors"
 import { canonicalizeIanaTimezone } from "@/server/shared/timezone"
 
@@ -26,59 +27,25 @@ async function resolveTelegramUserId(
   }
 
   const identity = validateTelegramInitData(rawInitData, botToken)
-  const now = new Date()
-  const [user] = await getDb()
-    .insert(users)
-    .values({
-      telegramUserId: identity.telegramUserId,
-      firstName: identity.firstName,
-      lastName: identity.lastName ?? null,
-      username: identity.username ?? null,
-      languageCode: identity.languageCode ?? null,
-      isPremium: identity.isPremium,
-      addedToAttachmentMenu: identity.addedToAttachmentMenu,
-      allowsWriteToPm: identity.allowsWriteToPm,
-      photoUrl: identity.photoUrl ?? null,
-      ...(timezone ? { timezone } : {}),
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: users.telegramUserId,
-      set: {
-        firstName: identity.firstName,
-        lastName: identity.lastName ?? null,
-        username: identity.username ?? null,
-        languageCode: identity.languageCode ?? null,
-        isPremium: identity.isPremium,
-        addedToAttachmentMenu: identity.addedToAttachmentMenu,
-        allowsWriteToPm: identity.allowsWriteToPm,
-        photoUrl: identity.photoUrl ?? null,
-        ...(timezone ? { timezone } : {}),
-        updatedAt: now,
-      },
-    })
-    .returning({ id: users.id })
-
-  if (!user) {
-    throw new AppError("Unable to resolve user", 500, "USER_RESOLUTION_FAILED")
-  }
-
-  return user.id
+  return resolveMiniAppUserId(identity, timezone)
 }
 
 export async function requireUserId(request: Request) {
   const timezone = canonicalizeIanaTimezone(
     request.headers.get("x-user-timezone")
   )
+  const authorization = request.headers.get("authorization")
+  if (authorization !== null) {
+    const userId = await resolveBearerUserId(authorization)
+    await updateUserTimezone(userId, timezone)
+    return userId
+  }
+
   const rawInitData = request.headers.get("x-telegram-init-data")
   if (rawInitData) return resolveTelegramUserId(rawInitData, timezone)
 
   if (process.env.NODE_ENV === "production") {
-    throw new AppError(
-      "Open the app inside Telegram",
-      401,
-      "TELEGRAM_INIT_DATA_REQUIRED"
-    )
+    throw new AppError("Authentication required", 401, "AUTH_REQUIRED")
   }
 
   const userId = request.headers.get("x-user-id") ?? env().DEV_USER_ID
@@ -91,13 +58,7 @@ export async function requireUserId(request: Request) {
     )
   }
 
-  if (timezone) {
-    const now = new Date()
-    await getDb()
-      .update(users)
-      .set({ timezone, updatedAt: now })
-      .where(and(eq(users.id, userId), ne(users.timezone, timezone)))
-  }
+  await updateUserTimezone(userId, timezone)
 
   return userId
 }
