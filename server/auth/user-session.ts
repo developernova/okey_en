@@ -32,6 +32,7 @@ type SafeUserRow = {
   username: string | null
   photoUrl: string | null
   levelEstimate: string | null
+  onboardingCompleted: boolean
 }
 
 function placementLevel(value: string | null): PlacementLevel | null {
@@ -48,7 +49,7 @@ function userDto(user: SafeUserRow) {
     lastName: user.lastName,
     username: user.username,
     photoUrl: user.photoUrl,
-    onboardingCompleted: level !== null,
+    onboardingCompleted: user.onboardingCompleted || level !== null,
     placementLevel: level,
   }
 }
@@ -96,6 +97,7 @@ function safeUserSelection() {
     username: users.username,
     photoUrl: users.photoUrl,
     levelEstimate: users.levelEstimate,
+    onboardingCompleted: users.onboardingCompleted,
   }
 }
 

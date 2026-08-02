@@ -92,7 +92,11 @@ export async function completeOnboarding(
   await db.transaction(async (tx) => {
     await tx
       .update(users)
-      .set({ levelEstimate: level, updatedAt: new Date() })
+      .set({
+        levelEstimate: level,
+        onboardingCompleted: true,
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, userId))
     await tx
       .delete(userLexemes)

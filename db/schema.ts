@@ -63,6 +63,7 @@ export const users = pgTable("users", {
   timezone: text("timezone").notNull().default("Europe/Moscow"),
   reminderTime: time("reminder_time"),
   levelEstimate: text("level_estimate"),
+  onboardingCompleted: boolean("onboarding_completed").notNull().default(false),
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
