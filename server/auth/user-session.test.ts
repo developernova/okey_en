@@ -72,6 +72,7 @@ const user = {
   username: "test_user",
   photoUrl: null,
   levelEstimate: "B1",
+  onboardingCompleted: true,
 }
 
 describe("native session credentials", () => {
@@ -87,6 +88,40 @@ describe("native session credentials", () => {
     expect(() => parseBearerAuthorization("Bearer telegram-init-data")).toThrow(
       expect.objectContaining({ code: "AUTH_TOKEN_INVALID" })
     )
+  })
+
+  it("restores onboarding for a legacy learner without a placement level", async () => {
+    const now = new Date("2026-08-02T12:00:00.000Z")
+    const verifier = "v".repeat(43)
+    const fake = fakeDatabase({
+      selectResults: [
+        [
+          {
+            id: "attempt-id",
+            userId: "user-id",
+            platform: "macos",
+            deviceId: null,
+            deviceName: "Mac",
+            handoffCodeChallenge: sha256Base64Url(verifier),
+          },
+        ],
+        [{ ...user, levelEstimate: null, onboardingCompleted: true }],
+      ],
+    })
+    mocks.getDb.mockReturnValue(fake.database)
+
+    const result = await exchangeTelegramHandoff({
+      attemptId: "774b9ccb-5bc8-4f87-9b8b-e44fbd7773fd",
+      code: "c".repeat(43),
+      handoffCodeVerifier: verifier,
+      timezone: null,
+      now,
+    })
+
+    expect(result.user).toMatchObject({
+      onboardingCompleted: true,
+      placementLevel: null,
+    })
   })
 
   it("binds a handoff code to the app verifier and issues a session atomically", async () => {
