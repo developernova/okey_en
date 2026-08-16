@@ -27,6 +27,8 @@ const serverEnvSchema = z.object({
   YOUTUBE_API_KEY: optionalString,
   TMDB_API_READ_TOKEN: optionalString,
   KINOPOISK_API_KEY: optionalString,
+  LANGUAGE_ENGINE_URL: optionalUrl,
+  LANGUAGE_ENGINE_TOKEN: optionalSecret,
   TELEGRAM_BOT_TOKEN: optionalString,
   TELEGRAM_WEB_APP_URL: optionalUrl,
   TELEGRAM_OIDC_CLIENT_ID: optionalString,

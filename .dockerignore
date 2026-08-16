@@ -5,9 +5,12 @@
 .playwright-cli
 .playwright-mcp
 coverage
+language-engine/.venv
+language-engine/.pytest_cache
+language-engine/.ruff_cache
+language-engine/**/__pycache__
 node_modules
 npm-debug.log*
 .env*
 !.env.example
 *.tsbuildinfo
-

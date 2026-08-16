@@ -5,6 +5,7 @@ import {
   episodeLexemes,
   lexemes,
   phrases,
+  transcriptSegments,
   userCards,
   userLexemes,
   users,
@@ -12,6 +13,10 @@ import {
 import { lemmaCandidates } from "@/server/content/lemmatize"
 import { estimatedLexemeKnowledge } from "@/server/progress/lexical-knowledge"
 import { retrievability } from "@/server/srs/fsrs"
+import {
+  analyzeVideoLanguage,
+  languageEngineConfigured,
+} from "@/server/language-engine/client"
 
 export async function calculateComprehension(input: {
   userId: string
@@ -20,7 +25,8 @@ export async function calculateComprehension(input: {
 }) {
   const db = getDb()
   const now = input.now ?? new Date()
-  const [episodeWords, explicitKnowledge, reviewedCards, learner] =
+  const useLanguageEngine = languageEngineConfigured()
+  const [episodeWords, explicitKnowledge, reviewedCards, learner, segments] =
     await Promise.all([
       db
         .select({
@@ -64,6 +70,17 @@ export async function calculateComprehension(input: {
         .from(users)
         .where(eq(users.id, input.userId))
         .limit(1),
+      useLanguageEngine
+        ? db
+            .select({
+              text: transcriptSegments.text,
+              offsetMs: transcriptSegments.offsetMs,
+              durationMs: transcriptSegments.durationMs,
+            })
+            .from(transcriptSegments)
+            .where(eq(transcriptSegments.episodeId, input.episodeId))
+            .orderBy(transcriptSegments.segmentIndex)
+        : Promise.resolve([]),
     ])
 
   const explicit = new Map(
@@ -116,6 +133,14 @@ export async function calculateComprehension(input: {
     totalOccurrences === 0
       ? 0
       : Math.round((knownOccurrences / totalOccurrences) * 100)
+  const languageFit =
+    useLanguageEngine && segments.length > 0
+      ? await analyzeVideoLanguage({
+          learnerLevel: learner[0]?.levelEstimate ?? null,
+          knownLemmas: [...known],
+          segments,
+        })
+      : null
 
   return {
     episodeId: input.episodeId,
@@ -128,5 +153,6 @@ export async function calculateComprehension(input: {
       totalOccurrences > 0 &&
       (estimatedOccurrences > 0 || knownOccurrences > 0),
     threshold: 0.8,
+    languageFit,
   }
 }

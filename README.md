@@ -30,6 +30,34 @@ The personal area is available at `/my`, with separate routes for
 live search and discovery through TMDB; without it the catalogue uses a small
 curated set of real titles for local development.
 
+## Python language engine
+
+`language-engine/` is an independent FastAPI service that provides
+explainable transcript analysis and deterministic movie pre-ranking. It uses
+spaCy for English tokenization and lemmatization and scikit-learn for TF-IDF
+similarity. The Next.js application keeps its existing calculation as a
+fallback, so an unavailable Python process never blocks Today or the film
+catalogue.
+
+Start it locally with Docker:
+
+```bash
+LANGUAGE_ENGINE_TOKEN=replace-with-at-least-16-characters \
+  docker compose -f compose.language-engine.yaml up --build
+```
+
+Then configure the Next.js process:
+
+```dotenv
+LANGUAGE_ENGINE_URL=http://127.0.0.1:8000
+LANGUAGE_ENGINE_TOKEN=replace-with-the-same-secret
+```
+
+The service exposes a public `GET /health` check and protects both analysis
+endpoints with the shared service token. Deployment options and the safe
+rollout order are documented in
+[`docs/deployment-language-engine.md`](docs/deployment-language-engine.md).
+
 ## Import an episode
 
 The importer is idempotent for a YouTube video. It downloads English subtitles, splits long transcripts, asks OpenAI for strict structured output, verifies every phrase against the transcript, and stores the result.
@@ -159,4 +187,11 @@ npm run typecheck
 npm run lint
 npm test
 npm run build
+```
+
+The Python service has its own test suite:
+
+```bash
+cd language-engine
+python -m pytest
 ```

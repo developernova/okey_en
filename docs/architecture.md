@@ -10,8 +10,10 @@ server/daily-plan/*          daily progress and episode advancement
 server/reminders/*           reminder preference and Telegram delivery
 server/srs/*                 FSRS scheduling and return-day policy
 server/progress/*            Comprehension metric
+server/language-engine/*     Optional Python service boundary and fallback
 server/auth/*                Request identity boundary
 db/*                         PostgreSQL schema and connection
+language-engine/*            FastAPI NLP and recommendation engine
 ```
 
 Route handlers validate input, resolve identity, call one application service, and serialize the result. They do not contain scheduling, prompt, or SQL policy.
@@ -71,7 +73,21 @@ Coverage is frequency weighted:
 known token occurrences / all token occurrences
 ```
 
-A lexeme counts as verified known when it is explicitly known with confidence ≥ 0.8 or its FSRS card has retrievability ≥ 0.8. Before enough individual evidence exists, the placement level contributes a probabilistic CEFR prior instead of marking every lower-level word as known. The displayed percentage is lexical coverage, not a claim about listening comprehension. The current tokenizer boundary is intentionally isolated in `server/content/text.ts`; replace it with a production English lemmatizer before calculating public-facing percentages over a large catalogue.
+A lexeme counts as verified known when it is explicitly known with confidence ≥ 0.8 or its FSRS card has retrievability ≥ 0.8. Before enough individual evidence exists, the placement level contributes a probabilistic CEFR prior instead of marking every lower-level word as known. The displayed percentage is lexical coverage, not a claim about listening comprehension.
+
+When `LANGUAGE_ENGINE_URL` and `LANGUAGE_ENGINE_TOKEN` are configured, the
+comprehension service also submits timestamped transcript segments and verified
+known lemmas to the Python Language Fit Engine. spaCy calculates lemmatized
+coverage, speech rate, utterance length, lexical diversity, a broad material
+level, and an explainable fit score. The existing frequency-weighted TypeScript
+percentage remains available and is used whenever the service is absent or
+times out.
+
+The same Python service pre-ranks each finite daily TMDB candidate set with
+level fit, explicit context, rating, recent-title exclusion, TF-IDF similarity,
+and a diversity penalty. OpenAI receives the bounded pre-ranked set only to
+make the final selection and write concise explanations. Neither ranking stage
+uses watch time, scroll depth, or session length.
 
 ## Daily plan and progression
 

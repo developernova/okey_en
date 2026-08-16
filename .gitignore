@@ -12,6 +12,10 @@
 /coverage
 /.playwright-cli
 /.playwright-mcp
+**/.pytest_cache/
+**/__pycache__/
+/language-engine/.venv/
+/language-engine/.ruff_cache/
 
 # next.js
 /.next/
