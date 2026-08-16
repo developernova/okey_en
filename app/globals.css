@@ -534,6 +534,53 @@ select {
   }
 }
 
+.admin-shell {
+  --primary: #315b40;
+  --primary-foreground: #ffffff;
+  --secondary: #edf3ee;
+  --secondary-foreground: #315b40;
+  --muted: #f2f5f2;
+  --muted-foreground: #758078;
+  --border: #e2e7e2;
+  --input: #e2e7e2;
+  --ring: #6e8c75;
+}
+
+.admin-shell [data-slot="table-head"] {
+  height: 2.75rem;
+  padding-inline: 1rem;
+  color: #69746c;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.admin-shell [data-slot="table-cell"] {
+  padding: 0.65rem 1rem;
+}
+
+.admin-shell [data-slot="badge"][data-variant="secondary"] {
+  background: #e7f2e7;
+  color: #3f714b;
+}
+
+.admin-shell [data-slot="tabs-list"] {
+  background: #edf1ed;
+}
+
+.admin-shell [data-slot="tabs-trigger"][data-active] {
+  background: white;
+  color: #315b40;
+  box-shadow: 0 2px 8px rgb(31 48 35 / 6%);
+}
+
+@media (max-width: 767px) {
+  .admin-shell [data-slot="table-head"],
+  .admin-shell [data-slot="table-cell"] {
+    padding-inline: 0.75rem;
+  }
+}
+
 @media (max-width: 639px) {
   body {
     background: var(--tg-theme-bg-color, var(--background));
