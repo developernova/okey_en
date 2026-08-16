@@ -137,6 +137,34 @@ export const authSessions = pgTable(
   ]
 )
 
+export const qrAuthChallenges = pgTable(
+  "qr_auth_challenges",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    publicTokenHash: text("public_token_hash").notNull(),
+    desktopVerifierHash: text("desktop_verifier_hash").notNull(),
+    desktopDeviceId: text("desktop_device_id").notNull(),
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("qr_auth_challenges_public_token_hash_unique").on(
+      table.publicTokenHash
+    ),
+    uniqueIndex("qr_auth_challenges_desktop_verifier_hash_unique").on(
+      table.desktopVerifierHash
+    ),
+    index("qr_auth_challenges_expires_at_idx").on(table.expiresAt),
+  ]
+)
+
 export const authTokens = pgTable(
   "auth_tokens",
   {
@@ -418,7 +446,12 @@ export const personalPhrases = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [index("personal_phrases_user_created_idx").on(table.userId, table.createdAt)]
+  (table) => [
+    index("personal_phrases_user_created_idx").on(
+      table.userId,
+      table.createdAt
+    ),
+  ]
 )
 
 export const reviewLogs = pgTable(

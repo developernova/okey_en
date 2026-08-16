@@ -5,6 +5,7 @@ import {
   authRateLimitBuckets,
   authSessions,
   authTokens,
+  qrAuthChallenges,
   telegramAuthAttempts,
 } from "@/db/schema"
 
@@ -47,6 +48,16 @@ export async function cleanupExpiredAuthRecords(now = new Date()) {
       .where(and(eq(authTokens.kind, "access"), lte(authTokens.expiresAt, now)))
       .returning({ tokenHash: authTokens.tokenHash })
 
+    const deletedQrChallenges = await tx
+      .delete(qrAuthChallenges)
+      .where(
+        or(
+          isNotNull(qrAuthChallenges.consumedAt),
+          lte(qrAuthChallenges.expiresAt, now)
+        )
+      )
+      .returning({ id: qrAuthChallenges.id })
+
     // Deleting only absolutely expired sessions deliberately retains consumed
     // refresh-token hashes for the full session lifetime. The FK cascade then
     // removes all tokens together once reuse detection is no longer needed.
@@ -62,6 +73,7 @@ export async function cleanupExpiredAuthRecords(now = new Date()) {
 
     return {
       attempts: deletedAttempts.length,
+      qrChallenges: deletedQrChallenges.length,
       accessTokens: deletedAccessTokens.length,
       sessions: deletedSessions.length,
       rateLimitBuckets: deletedRateLimitBuckets.length,

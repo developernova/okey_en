@@ -9,7 +9,9 @@ import {
   appendWebSessionCookies,
   clearWebAuthCookies,
   webAuthHandoff,
+  webAuthReturnPath,
 } from "@/server/auth/web-session"
+import { publicAppUrl } from "@/server/config/public-app-url"
 
 function redirect(url: string, headers = new Headers()) {
   headers.set("Location", url)
@@ -24,9 +26,10 @@ async function failAttempt(
   const nativeReturnUrl = await failTelegramOidcAttempt(attempt.id, error)
   if (attempt.platform !== "web") return redirect(nativeReturnUrl)
 
+  const returnPath = webAuthReturnPath(request)
   const headers = new Headers()
   clearWebAuthCookies(headers)
-  const webReturnUrl = new URL("/login", request.url)
+  const webReturnUrl = publicAppUrl(returnPath ?? "/login", request)
   webReturnUrl.searchParams.set("auth_error", error)
   return redirect(webReturnUrl.toString(), headers)
 }
@@ -76,9 +79,13 @@ export async function GET(request: Request) {
       timezone: null,
     })
     const headers = new Headers()
+    const returnPath = webAuthReturnPath(request)
     appendWebSessionCookies(headers, session)
     clearWebAuthCookies(headers)
-    return redirect(new URL("/", request.url).toString(), headers)
+    return redirect(
+      publicAppUrl(returnPath ?? "/my", request).toString(),
+      headers
+    )
   } catch {
     // Never reflect or log provider payloads, authorization codes or tokens.
     return failAttempt(request, attempt, "authentication_failed")

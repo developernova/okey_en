@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { AppError } from "@/server/shared/errors"
 
@@ -22,6 +22,8 @@ vi.mock("@/server/auth/user-session", () => ({
 import { GET } from "./route"
 
 describe("GET /api/auth/telegram/callback", () => {
+  afterEach(() => vi.unstubAllEnvs())
+
   beforeEach(() => {
     mocks.claimTelegramOidcAttempt.mockReset().mockResolvedValue({
       id: "attempt-id",
@@ -104,7 +106,7 @@ describe("GET /api/auth/telegram/callback", () => {
     )
 
     expect(response.status).toBe(302)
-    expect(response.headers.get("location")).toBe("https://catch.example/")
+    expect(response.headers.get("location")).toBe("https://catch.example/my")
     expect(mocks.exchangeTelegramHandoff).toHaveBeenCalledWith(
       expect.objectContaining({
         attemptId: "attempt-id",
@@ -138,5 +140,68 @@ describe("GET /api/auth/telegram/callback", () => {
     )
     expect(mocks.completeTelegramOidcAttempt).not.toHaveBeenCalled()
     expect(mocks.exchangeTelegramHandoff).not.toHaveBeenCalled()
+  })
+
+  it("returns an authenticated phone to the QR confirmation screen", async () => {
+    mocks.claimTelegramOidcAttempt.mockResolvedValueOnce({
+      id: "attempt-id",
+      platform: "web",
+      oidcNonceHash: "nonce-hash",
+      oidcCodeVerifier: "verifier",
+    })
+    mocks.completeTelegramOidcAttempt.mockResolvedValueOnce({
+      attemptId: "attempt-id",
+      handoffCode: "one-time",
+      platform: "web",
+      redirectUrl: null,
+    })
+    const token = "q".repeat(43)
+
+    const response = await GET(
+      new Request(
+        "https://catch.example/api/auth/telegram/callback?code=telegram-code&state=opaque-state",
+        {
+          headers: {
+            Cookie: `catch_english_auth_attempt=attempt-id; catch_english_auth_verifier=${"v".repeat(43)}; catch_english_auth_return=${encodeURIComponent(`/login/qr/${token}`)}`,
+          },
+        }
+      )
+    )
+
+    expect(response.status).toBe(302)
+    expect(response.headers.get("location")).toBe(
+      `https://catch.example/login/qr/${token}`
+    )
+  })
+
+  it("never exposes an internal production host after web authentication", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://0.0.0.0:3000")
+    mocks.claimTelegramOidcAttempt.mockResolvedValueOnce({
+      id: "attempt-id",
+      platform: "web",
+      oidcNonceHash: "nonce-hash",
+      oidcCodeVerifier: "verifier",
+    })
+    mocks.completeTelegramOidcAttempt.mockResolvedValueOnce({
+      attemptId: "attempt-id",
+      handoffCode: "one-time",
+      platform: "web",
+      redirectUrl: null,
+    })
+
+    const response = await GET(
+      new Request(
+        "https://0.0.0.0:3000/api/auth/telegram/callback?code=telegram-code&state=opaque-state",
+        {
+          headers: {
+            Cookie: `catch_english_auth_attempt=attempt-id; catch_english_auth_verifier=${"v".repeat(43)}`,
+          },
+        }
+      )
+    )
+
+    expect(response.status).toBe(302)
+    expect(response.headers.get("location")).toBe("https://en.dakhe.ru/my")
   })
 })

@@ -15,6 +15,7 @@ vi.mock("@/server/auth/native-auth-rate-limit", () => ({
 }))
 
 import {
+  exchangeQrAuthChallenge,
   exchangeTelegramHandoff,
   parseBearerAuthorization,
   refreshUserSession,
@@ -42,9 +43,12 @@ function fakeDatabase(options: FakeTransactionOptions) {
     }),
     update: vi.fn((table: unknown) => ({
       set: vi.fn((values: unknown) => ({
-        where: vi.fn(async () => {
+        where: vi.fn(() => {
           updates.push({ table, values })
-          return []
+          const result = Object.assign(Promise.resolve([] as unknown[]), {
+            returning: vi.fn(async () => [{ id: "updated-id" }]),
+          })
+          return result
         }),
       })),
     })),
@@ -191,6 +195,71 @@ describe("native session credentials", () => {
     ).rejects.toMatchObject({ code: "TELEGRAM_HANDOFF_INVALID" })
     expect(fake.updates).toHaveLength(0)
     expect(fake.inserts).toHaveLength(0)
+  })
+
+  it("keeps a valid QR challenge pending until the phone approves it", async () => {
+    const now = new Date("2026-08-02T12:00:00.000Z")
+    const fake = fakeDatabase({
+      selectResults: [
+        [
+          {
+            id: "774b9ccb-5bc8-4f87-9b8b-e44fbd7773fd",
+            userId: null,
+            desktopDeviceId: "desktop-id",
+            expiresAt: new Date("2026-08-02T12:03:00.000Z"),
+            approvedAt: null,
+            consumedAt: null,
+          },
+        ],
+      ],
+    })
+    mocks.getDb.mockReturnValue(fake.database)
+
+    await expect(
+      exchangeQrAuthChallenge({
+        challengeId: "774b9ccb-5bc8-4f87-9b8b-e44fbd7773fd",
+        desktopVerifier: "v".repeat(43),
+        timezone: null,
+        now,
+      })
+    ).resolves.toEqual({ kind: "pending" })
+    expect(fake.updates).toHaveLength(0)
+    expect(fake.inserts).toHaveLength(0)
+  })
+
+  it("consumes an approved QR challenge and issues the desktop session once", async () => {
+    const now = new Date("2026-08-02T12:00:00.000Z")
+    const fake = fakeDatabase({
+      selectResults: [
+        [
+          {
+            id: "774b9ccb-5bc8-4f87-9b8b-e44fbd7773fd",
+            userId: "user-id",
+            desktopDeviceId: "desktop-id",
+            expiresAt: new Date("2026-08-02T12:03:00.000Z"),
+            approvedAt: new Date("2026-08-02T12:00:30.000Z"),
+            consumedAt: null,
+          },
+        ],
+        [user],
+      ],
+    })
+    mocks.getDb.mockReturnValue(fake.database)
+
+    const result = await exchangeQrAuthChallenge({
+      challengeId: "774b9ccb-5bc8-4f87-9b8b-e44fbd7773fd",
+      desktopVerifier: "v".repeat(43),
+      timezone: null,
+      now,
+    })
+
+    expect(result.kind).toBe("authenticated")
+    expect(result).toMatchObject({
+      accessToken: expect.stringMatching(/^ce_at_/),
+      refreshToken: expect.stringMatching(/^ce_rt_/),
+    })
+    expect(fake.updates).toHaveLength(1)
+    expect(fake.inserts).toHaveLength(2)
   })
 
   it("rotates a refresh token and returns the native wire contract", async () => {

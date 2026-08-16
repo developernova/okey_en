@@ -4,6 +4,7 @@ import { getDb } from "@/db"
 import {
   authSessions,
   authTokens,
+  qrAuthChallenges,
   telegramAuthAttempts,
   users,
 } from "@/db/schema"
@@ -314,6 +315,138 @@ export async function exchangeTelegramHandoff(input: {
   }
 
   return {
+    sessionId: result.sessionId,
+    accessToken,
+    expiresAt: accessExpiresAt.toISOString(),
+    refreshToken,
+    refreshExpiresAt: refreshExpiresAt.toISOString(),
+    user: userDto(result.user),
+  }
+}
+
+export async function exchangeQrAuthChallenge(input: {
+  challengeId: string
+  desktopVerifier: string
+  timezone: string | null
+  now?: Date
+}) {
+  if (
+    !/^[0-9a-f-]{36}$/i.test(input.challengeId) ||
+    !validHandoffVerifier(input.desktopVerifier)
+  ) {
+    throw new AppError("Invalid QR login", 401, "QR_AUTH_INVALID")
+  }
+
+  const now = input.now ?? new Date()
+  const accessToken = generateAccessToken()
+  const refreshToken = generateRefreshToken()
+  const absoluteExpiresAt = new Date(now.getTime() + SESSION_ABSOLUTE_TTL_MS)
+  const { accessExpiresAt, refreshExpiresAt } = tokenExpiry(
+    now,
+    absoluteExpiresAt
+  )
+
+  const result = await getDb().transaction(async (tx) => {
+    const [challenge] = await tx
+      .select({
+        id: qrAuthChallenges.id,
+        userId: qrAuthChallenges.userId,
+        desktopDeviceId: qrAuthChallenges.desktopDeviceId,
+        expiresAt: qrAuthChallenges.expiresAt,
+        approvedAt: qrAuthChallenges.approvedAt,
+        consumedAt: qrAuthChallenges.consumedAt,
+      })
+      .from(qrAuthChallenges)
+      .where(
+        and(
+          eq(qrAuthChallenges.id, input.challengeId),
+          eq(
+            qrAuthChallenges.desktopVerifierHash,
+            sha256Hex(input.desktopVerifier)
+          )
+        )
+      )
+      .for("update")
+      .limit(1)
+
+    if (
+      !challenge ||
+      challenge.consumedAt ||
+      challenge.expiresAt.getTime() <= now.getTime()
+    ) {
+      return { kind: "expired" as const }
+    }
+    if (!challenge.userId || !challenge.approvedAt) {
+      return { kind: "pending" as const }
+    }
+
+    const [consumed] = await tx
+      .update(qrAuthChallenges)
+      .set({ consumedAt: now })
+      .where(
+        and(
+          eq(qrAuthChallenges.id, challenge.id),
+          isNull(qrAuthChallenges.consumedAt)
+        )
+      )
+      .returning({ id: qrAuthChallenges.id })
+    if (!consumed) return { kind: "expired" as const }
+
+    const [session] = await tx
+      .insert(authSessions)
+      .values({
+        userId: challenge.userId,
+        platform: "web",
+        deviceId: challenge.desktopDeviceId,
+        deviceName: "Web browser via QR",
+        absoluteExpiresAt,
+        lastSeenAt: now,
+        createdAt: now,
+      })
+      .returning({ id: authSessions.id })
+
+    if (!session) return { kind: "expired" as const }
+
+    await tx.insert(authTokens).values([
+      {
+        tokenHash: sha256Hex(accessToken),
+        sessionId: session.id,
+        kind: "access",
+        expiresAt: accessExpiresAt,
+        createdAt: now,
+      },
+      {
+        tokenHash: sha256Hex(refreshToken),
+        sessionId: session.id,
+        kind: "refresh",
+        expiresAt: refreshExpiresAt,
+        createdAt: now,
+      },
+    ])
+
+    if (input.timezone) {
+      await tx
+        .update(users)
+        .set({ timezone: input.timezone, updatedAt: now })
+        .where(eq(users.id, challenge.userId))
+    }
+
+    const [user] = await tx
+      .select(safeUserSelection())
+      .from(users)
+      .where(eq(users.id, challenge.userId))
+      .limit(1)
+    if (!user) {
+      throw new AppError("User not found", 500, "USER_RESOLUTION_FAILED")
+    }
+
+    return { kind: "authenticated" as const, sessionId: session.id, user }
+  })
+
+  if (result.kind !== "authenticated") return result
+
+  return {
+    kind: "authenticated" as const,
     sessionId: result.sessionId,
     accessToken,
     expiresAt: accessExpiresAt.toISOString(),

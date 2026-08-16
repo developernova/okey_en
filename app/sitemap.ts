@@ -1,11 +1,12 @@
 import type { MetadataRoute } from "next"
 
-const siteUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+import { publicAppOrigin } from "@/server/config/public-app-url"
 
 export default function sitemap(): MetadataRoute.Sitemap {
+  const siteUrl = publicAppOrigin()
   return [
     {
-      url: `${siteUrl}/landing`,
+      url: `${siteUrl}/`,
       lastModified: new Date(),
       changeFrequency: "weekly",
       priority: 1,

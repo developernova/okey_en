@@ -56,4 +56,30 @@ describe("GET /api/auth/telegram/web/start", () => {
       "https://catch.example/login?auth_error=authentication_failed"
     )
   })
+
+  it("keeps a validated QR confirmation return path in an HttpOnly cookie", async () => {
+    const token = "q".repeat(43)
+    const response = await GET(
+      new Request(
+        `https://catch.example/api/auth/telegram/web/start?return_to=${encodeURIComponent(`/login/qr/${token}`)}`
+      )
+    )
+
+    expect(response.status).toBe(302)
+    expect(response.headers.getSetCookie().join("\n")).toContain(
+      `catch_english_auth_return=%2Flogin%2Fqr%2F${token}`
+    )
+  })
+
+  it("ignores an external return path", async () => {
+    const response = await GET(
+      new Request(
+        "https://catch.example/api/auth/telegram/web/start?return_to=https%3A%2F%2Fevil.example"
+      )
+    )
+
+    expect(response.headers.getSetCookie().join("\n")).not.toContain(
+      "catch_english_auth_return="
+    )
+  })
 })

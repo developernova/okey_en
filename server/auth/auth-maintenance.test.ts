@@ -4,6 +4,7 @@ import {
   authRateLimitBuckets,
   authSessions,
   authTokens,
+  qrAuthChallenges,
   telegramAuthAttempts,
 } from "@/db/schema"
 
@@ -17,6 +18,7 @@ function fakeCleanupDatabase() {
   const remaining = new Map<unknown, string[]>([
     [telegramAuthAttempts, ["attempt-1", "attempt-2", "attempt-3"]],
     [authTokens, ["access-1", "access-2", "access-3"]],
+    [qrAuthChallenges, ["qr-1", "qr-2"]],
     [authSessions, ["session-1", "session-2"]],
     [authRateLimitBuckets, ["bucket-1", "bucket-2", "bucket-3", "bucket-4"]],
   ])
@@ -55,6 +57,9 @@ describe("native auth maintenance", () => {
     expect(results.reduce((sum, result) => sum + result.attempts, 0)).toBe(3)
     expect(results.reduce((sum, result) => sum + result.accessTokens, 0)).toBe(
       3
+    )
+    expect(results.reduce((sum, result) => sum + result.qrChallenges, 0)).toBe(
+      2
     )
     expect(results.reduce((sum, result) => sum + result.sessions, 0)).toBe(2)
     expect(
