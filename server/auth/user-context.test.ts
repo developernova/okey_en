@@ -89,6 +89,27 @@ describe("requireUserId", () => {
     )
   })
 
+  it("accepts the HttpOnly web access cookie", async () => {
+    const request = new Request("https://example.com/api/today", {
+      headers: { Cookie: "catch_english_access=ce_at_web" },
+    })
+
+    await expect(requireUserId(request)).resolves.toBe("native-user")
+    expect(mocks.resolveBearerUserId).toHaveBeenCalledWith("Bearer ce_at_web")
+  })
+
+  it("keeps signed Mini App identity ahead of a stale web cookie", async () => {
+    const request = new Request("https://example.com/api/today", {
+      headers: {
+        "x-telegram-init-data": "valid-init-data",
+        Cookie: "catch_english_access=stale",
+      },
+    })
+
+    await expect(requireUserId(request)).resolves.toBe("mini-user")
+    expect(mocks.resolveBearerUserId).not.toHaveBeenCalled()
+  })
+
   it("fails closed without either production credential", async () => {
     vi.stubEnv("NODE_ENV", "production")
     await expect(

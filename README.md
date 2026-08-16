@@ -1,10 +1,16 @@
-# Okey English
+# Catch English
 
-Telegram-native English learning through real video, contextual phrases, and FSRS.
+Multiplatform English learning through real video, contextual phrases, and FSRS. Catch English includes a responsive web app, Telegram Mini App, native iOS/macOS client, shared API, PostgreSQL storage, and a content administration surface.
+
+Catch English optimizes for real learning value rather than time in the app.
+The complete core learning cycle is intended to remain genuinely useful and
+free, without streak pressure, artificial retention mechanics, or repeated
+work on language the learner has already mastered. The product principles are
+documented in [`docs/product-principles.md`](docs/product-principles.md).
 
 ## Local setup
 
-1. Copy `.env.example` to `.env.local` and fill in PostgreSQL, OpenAI, voice-only OpenRouter, and admin credentials.
+1. Copy `.env.example` to `.env.local` and fill in PostgreSQL, OpenAI, voice-only OpenRouter, and admin credentials. Add an optional TMDB read token for a live film and series catalogue.
 2. Generate and apply the database migration:
 
 ```bash
@@ -18,6 +24,11 @@ npm run db:migrate
 ```bash
 npm run dev
 ```
+
+The personal area is available at `/my`, with separate routes for
+`/my/phrases`, `/my/watch`, and `/my/settings`. `TMDB_API_READ_TOKEN` enables
+live search and discovery through TMDB; without it the catalogue uses a small
+curated set of real titles for local development.
 
 ## Import an episode
 
@@ -107,7 +118,18 @@ The native login contract is:
 - `POST /api/auth/telegram/exchange` proves the client's handoff verifier and returns opaque access and rotating refresh tokens. Access tokens expire after 15 minutes; refresh tokens roll for up to 90 days inside a one-year absolute session.
 - Native learner requests use `Authorization: Bearer <accessToken>`. `POST /api/auth/session/refresh` rotates credentials, with durable daily caps of 120 rotations per session and 300 per user across devices. `GET` and `DELETE /api/auth/session` inspect or revoke the current device session.
 
-Only token hashes are stored for issued credentials. Reusing a consumed refresh token revokes its session. Auth responses are non-cacheable, and provider codes, client secrets, identity tokens, access tokens, and refresh tokens are never logged. The OIDC request includes `telegram:bot_access`, so Telegram can ask the user for explicit permission to receive direct bot messages; reminders remain disabled until the user opts in inside Okey English.
+Only token hashes are stored for issued credentials. Reusing a consumed refresh token revokes its session. Auth responses are non-cacheable, and provider codes, client secrets, identity tokens, access tokens, and refresh tokens are never logged. The OIDC request includes `telegram:bot_access`, so Telegram can ask the user for explicit permission to receive direct bot messages; reminders remain disabled until the user opts in inside Catch English.
+
+## Browser authentication
+
+The standalone responsive web app reuses the Telegram OIDC flow without exposing access or refresh tokens to browser JavaScript:
+
+1. `GET /api/auth/telegram/web/start` creates a PKCE-bound web attempt and redirects to Telegram.
+2. The shared Telegram callback verifies the OIDC response, the matching short-lived browser handoff cookie, and the server-side PKCE state.
+3. The backend exchanges the one-time handoff and stores rotating access and refresh credentials in `HttpOnly`, `SameSite=Lax` cookies.
+4. Learner API routes accept the web access cookie after explicit Bearer and Telegram Mini App credentials. The web client performs one serialized refresh and retries the original request after an access-token expiry.
+
+Web and native clients resolve to the same Telegram user, so onboarding, daily plans, reviews, programmes, and interviews stay synchronized across platforms. Local browser development retains the existing `DEV_USER_ID` fallback.
 
 ## Telegram reminders
 

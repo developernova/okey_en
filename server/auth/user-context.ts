@@ -10,6 +10,7 @@ import {
   updateUserTimezone,
 } from "@/server/auth/telegram-user"
 import { resolveBearerUserId } from "@/server/auth/user-session"
+import { webAccessAuthorization } from "@/server/auth/web-session"
 import { AppError } from "@/server/shared/errors"
 import { canonicalizeIanaTimezone } from "@/server/shared/timezone"
 
@@ -43,6 +44,13 @@ export async function requireUserId(request: Request) {
 
   const rawInitData = request.headers.get("x-telegram-init-data")
   if (rawInitData) return resolveTelegramUserId(rawInitData, timezone)
+
+  const webAuthorization = webAccessAuthorization(request)
+  if (webAuthorization) {
+    const userId = await resolveBearerUserId(webAuthorization)
+    await updateUserTimezone(userId, timezone)
+    return userId
+  }
 
   if (process.env.NODE_ENV === "production") {
     throw new AppError("Authentication required", 401, "AUTH_REQUIRED")

@@ -510,7 +510,7 @@ export async function replyToInterview(input: {
     })
   }
   const message = completed
-    ? "Шаг засчитан ✓. Хочешь ещё обсудить видео — пиши, или возвращайся к плану."
+    ? "Шаг засчитан. Хочешь ещё обсудить видео — пиши, или возвращайся к плану."
     : state.questions[answersCompleted].text
   const assistantContent = [
     turn.correction ? `Language correction: ${turn.correction}` : null,

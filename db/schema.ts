@@ -401,6 +401,26 @@ export const userCards = pgTable(
   ]
 )
 
+export const personalPhrases = pgTable(
+  "personal_phrases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    phrase: text("phrase").notNull(),
+    translationRu: text("translation_ru").notNull(),
+    contextSentence: text("context_sentence"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("personal_phrases_user_created_idx").on(table.userId, table.createdAt)]
+)
+
 export const reviewLogs = pgTable(
   "review_logs",
   {
