@@ -28,7 +28,11 @@ type CatalogItem = {
   rating: number
   tmdbUrl: string
   genreIds: number[]
-  learningLevel: "A2" | "B1" | "B2"
+  learningLevel: "A2" | "B1" | "B2" | "C1"
+  languageSummaryRu: string
+  difficultyFactors: string[]
+  confidence: "low" | "medium" | "high"
+  analysisSource: "ai_metadata_estimate"
   recommended: boolean
 }
 
@@ -70,22 +74,6 @@ function matchesCategory(item: CatalogItem, category: Category) {
     animation: 16,
   }
   return item.genreIds.includes(genreByCategory[category])
-}
-
-function fitsLearnerLevel(
-  itemLevel: CatalogItem["learningLevel"],
-  learnerLevel: string
-) {
-  const rank: Record<string, number> = {
-    A1: 0,
-    A2: 0,
-    B1: 1,
-    B2: 2,
-    C1: 2,
-    C2: 2,
-  }
-  const distance = (rank[learnerLevel] ?? 1) - rank[itemLevel]
-  return distance >= 0 && distance <= 1
 }
 
 function CatalogCard({
@@ -179,16 +167,8 @@ export function WatchCatalogScreen() {
               )
             }
             if (!cancelled) {
-              const level = payload.learnerLevel ?? "B1"
-              setItems(
-                payload.data.map((item) => ({
-                  ...item,
-                  recommended:
-                    item.recommended ||
-                    fitsLearnerLevel(item.learningLevel, level),
-                }))
-              )
-              setLearnerLevel(level)
+              setItems(payload.data)
+              setLearnerLevel(payload.learnerLevel ?? "B1")
             }
           } catch (requestError) {
             if (!cancelled) {
@@ -252,15 +232,11 @@ export function WatchCatalogScreen() {
     }
   }, [selected])
 
-  const recommended = items
-    .filter((item) => fitsLearnerLevel(item.learningLevel, learnerLevel))
-    .slice(0, 6)
+  const recommended = items.filter((item) => item.recommended).slice(0, 6)
   const filtered = query.trim()
     ? items
     : category === "recommended"
-      ? items.filter((item) =>
-          fitsLearnerLevel(item.learningLevel, learnerLevel)
-        )
+      ? items.filter((item) => item.recommended)
       : items.filter((item) => matchesCategory(item, category))
   const catalogItems =
     category === "all" && !query.trim()
@@ -429,6 +405,32 @@ export function WatchCatalogScreen() {
                     {selected.overview}
                   </p>
                 )}
+                <div className="mt-6 rounded-[22px] bg-muted/70 p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <p className="text-xs font-semibold text-muted-foreground">
+                      Английский в оригинале
+                    </p>
+                    <span className="rounded-lg bg-background px-2.5 py-1 text-xs font-semibold shadow-sm">
+                      {selected.learningLevel}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 font-medium">
+                    {selected.languageSummaryRu}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {selected.difficultyFactors.map((factor) => (
+                      <span
+                        key={factor}
+                        className="rounded-full border bg-background/70 px-3 py-1.5 text-xs text-muted-foreground"
+                      >
+                        {factor}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-4 text-[11px] text-muted-foreground/75">
+                    Предварительная оценка по описанию, жанру и контексту фильма
+                  </p>
+                </div>
               </div>
               <div>
                 <p className="mb-3 text-xs font-semibold text-muted-foreground">
@@ -464,7 +466,7 @@ export function WatchCatalogScreen() {
                         rel="noreferrer"
                         className="flex h-12 items-center justify-between gap-3 rounded-2xl bg-foreground px-4 text-sm font-semibold text-background"
                       >
-                        <span>Найти площадку</span>
+                        <span>О фильме на TMDB</span>
                         <HugeiconsIcon
                           icon={ArrowUpRight01Icon}
                           size={18}

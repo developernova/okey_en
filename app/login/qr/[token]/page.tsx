@@ -23,7 +23,7 @@ export default async function QrLoginPage({
   if (!validQrAuthToken(token)) notFound()
 
   return (
-    <main className="flex min-h-dvh flex-col bg-[#f7f6f2] px-5 text-[#20211e]">
+    <main className="flex min-h-dvh flex-col bg-background px-5 text-foreground">
       <header className="mx-auto flex w-full max-w-[480px] items-center justify-center py-6">
         <Link
           href="/"
@@ -53,12 +53,12 @@ export default async function QrLoginPage({
       </header>
 
       <div className="mx-auto grid w-full max-w-[420px] flex-1 place-items-center py-8">
-        <section className="login-card-enter w-full rounded-[28px] border border-[#deddd7] bg-white/90 p-6 shadow-[0_24px_70px_rgba(32,33,30,0.09)] sm:p-8">
+        <section className="login-card-enter w-full rounded-[28px] border bg-card/90 p-6 shadow-[0_24px_70px_rgba(32,33,30,0.09)] sm:p-8">
           <QrLoginApproval token={token} authError={query.auth_error} />
         </section>
       </div>
 
-      <footer className="py-6 text-center text-xs text-[#7a7b74]">
+      <footer className="py-6 text-center text-xs text-muted-foreground">
         Catch English
       </footer>
     </main>

@@ -24,6 +24,19 @@ const transcriptionSchema = z.object({
   text: z.string(),
 })
 
+export function validateEnglishAudioFile(
+  audio: File,
+  errorCode = "INVALID_AUDIO"
+) {
+  if (
+    audio.size === 0 ||
+    audio.size > maxAudioBytes ||
+    !acceptedAudioTypes.has(audio.type.toLowerCase().split(";", 1)[0])
+  ) {
+    throw new AppError("Invalid audio", 400, errorCode)
+  }
+}
+
 export function validateInterviewAudio(input: {
   userId: string
   episodeId: string
@@ -48,32 +61,15 @@ export function validateInterviewAudio(input: {
     )
   }
 
-  if (
-    input.audio.size === 0 ||
-    input.audio.size > maxAudioBytes ||
-    !acceptedAudioTypes.has(input.audio.type.toLowerCase().split(";", 1)[0])
-  ) {
-    throw new AppError("Invalid audio", 400, "INVALID_INTERVIEW_AUDIO")
-  }
+  validateEnglishAudioFile(input.audio, "INVALID_INTERVIEW_AUDIO")
 }
 
-export async function transcribeInterviewAudio(input: {
-  userId: string
-  episodeId: string
-  sessionToken: string
-  audio: File
-}) {
-  validateInterviewAudio(input)
+export async function transcribeEnglishAudio(audio: File) {
+  validateEnglishAudioFile(audio)
   const config = env()
 
-  await reserveInterviewRequest({
-    userId: input.userId,
-    episodeId: input.episodeId,
-    kind: "transcribe",
-  })
-
   const body = new FormData()
-  body.set("file", input.audio, input.audio.name || "answer.webm")
+  body.set("file", audio, audio.name || "answer.webm")
   body.set("model", config.OPENROUTER_TRANSCRIPTION_MODEL)
   body.set("language", "en")
   body.set("temperature", "0")
@@ -118,4 +114,20 @@ export async function transcribeInterviewAudio(input: {
   }
 
   return { text: text.slice(0, 600) }
+}
+
+export async function transcribeInterviewAudio(input: {
+  userId: string
+  episodeId: string
+  sessionToken: string
+  audio: File
+}) {
+  validateInterviewAudio(input)
+
+  await reserveInterviewRequest({
+    userId: input.userId,
+    episodeId: input.episodeId,
+    kind: "transcribe",
+  })
+  return transcribeEnglishAudio(input.audio)
 }

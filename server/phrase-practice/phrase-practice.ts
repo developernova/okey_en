@@ -4,6 +4,11 @@ import { z } from "zod"
 import { getDb } from "@/db"
 import { personalPhrases, phrases, userCards, users } from "@/db/schema"
 import { env } from "@/server/config/env"
+import { reserveInterviewRequest } from "@/server/interview/rate-limit"
+import {
+  transcribeEnglishAudio,
+  validateEnglishAudioFile,
+} from "@/server/interview/transcription"
 import { AppError } from "@/server/shared/errors"
 
 export type PhrasePracticeMessage = {
@@ -22,7 +27,10 @@ const completionSchema = z.object({
   ),
 })
 
-async function phraseContext(userId: string, cardId: string) {
+export async function getPhrasePracticeContext(
+  userId: string,
+  cardId: string
+) {
   const db = getDb()
   const [card] = await db
     .select({
@@ -30,6 +38,7 @@ async function phraseContext(userId: string, cardId: string) {
       translationRu: phrases.translationRu,
       contextSentence: phrases.contextSentence,
       level: users.levelEstimate,
+      episodeId: phrases.episodeId,
     })
     .from(userCards)
     .innerJoin(phrases, eq(phrases.id, userCards.phraseId))
@@ -59,15 +68,47 @@ async function phraseContext(userId: string, cardId: string) {
   if (!personal) {
     throw new AppError("Phrase not found", 404, "PHRASE_NOT_FOUND")
   }
-  return { ...personal, contextSentence: personal.contextSentence ?? "" }
+  return {
+    ...personal,
+    contextSentence: personal.contextSentence ?? "",
+    episodeId: null,
+  }
 }
 
 export async function startPhrasePractice(userId: string, cardId: string) {
-  const card = await phraseContext(userId, cardId)
+  const card = await getPhrasePracticeContext(userId, cardId)
   return {
     message: `Tell me about a real situation where you could say “${card.phrase}”.`,
     correction: null,
+    phrase: {
+      phrase: card.phrase,
+      translationRu: card.translationRu,
+      contextSentence: card.contextSentence,
+    },
   }
+}
+
+export async function transcribePhrasePracticeAudio(input: {
+  userId: string
+  cardId: string
+  audio: File
+}) {
+  validateEnglishAudioFile(input.audio, "INVALID_PHRASE_AUDIO")
+  const card = await getPhrasePracticeContext(input.userId, input.cardId)
+  if (!card.episodeId) {
+    throw new AppError(
+      "Голосовой ответ для этой фразы пока недоступен",
+      409,
+      "PHRASE_VOICE_UNAVAILABLE"
+    )
+  }
+
+  await reserveInterviewRequest({
+    userId: input.userId,
+    episodeId: card.episodeId,
+    kind: "transcribe",
+  })
+  return transcribeEnglishAudio(input.audio)
 }
 
 export async function replyToPhrasePractice(input: {
@@ -75,7 +116,7 @@ export async function replyToPhrasePractice(input: {
   cardId: string
   messages: PhrasePracticeMessage[]
 }) {
-  const card = await phraseContext(input.userId, input.cardId)
+  const card = await getPhrasePracticeContext(input.userId, input.cardId)
   const config = env()
   if (!config.OPENAI_API_KEY) {
     throw new AppError(

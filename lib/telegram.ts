@@ -19,7 +19,20 @@ type CloudStorage = {
 
 export type TelegramWebApp = {
   initData: string
+  initDataUnsafe?: {
+    user?: {
+      first_name?: string
+      username?: string
+    }
+  }
   version: string
+  colorScheme?: "light" | "dark"
+  themeParams?: {
+    bg_color?: string
+    secondary_bg_color?: string
+    header_bg_color?: string
+    bottom_bar_bg_color?: string
+  }
   ready(): void
   expand(): void
   isVersionAtLeast(version: string): boolean
@@ -27,8 +40,24 @@ export type TelegramWebApp = {
   enableVerticalSwipes?(): void
   requestFullscreen?(): void
   exitFullscreen?(): void
+  setHeaderColor?(color: string): void
+  setBackgroundColor?(color: string): void
+  setBottomBarColor?(color: string): void
   openLink?(url: string, options?: { try_instant_view?: boolean }): void
   addToHomeScreen?(): void
+  showScanQrPopup?(
+    params: { text?: string },
+    callback?: (text: string) => boolean | void
+  ): void
+  closeScanQrPopup?(): void
+  onEvent?(
+    eventType: string,
+    callback: (event?: { data?: string }) => void
+  ): void
+  offEvent?(
+    eventType: string,
+    callback: (event?: { data?: string }) => void
+  ): void
   BackButton?: BackButton
   CloudStorage?: CloudStorage
   HapticFeedback?: {

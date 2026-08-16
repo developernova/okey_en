@@ -674,3 +674,35 @@ export const ingestionJobs = pgTable(
       .where(sql`${table.status} in ('pending', 'processing')`),
   ]
 )
+
+export const catalogLanguageProfiles = pgTable(
+  "catalog_language_profiles",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tmdbId: integer("tmdb_id").notNull(),
+    mediaType: text("media_type").notNull(),
+    learningLevel: text("learning_level").notNull(),
+    summaryRu: text("summary_ru").notNull(),
+    difficultyFactors: jsonb("difficulty_factors")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    confidence: text("confidence").notNull(),
+    sourceFingerprint: text("source_fingerprint").notNull(),
+    model: text("model").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("catalog_language_profiles_tmdb_media_unique").on(
+      table.tmdbId,
+      table.mediaType
+    ),
+    index("catalog_language_profiles_updated_idx").on(table.updatedAt),
+  ]
+)
