@@ -14,6 +14,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import Link from "next/link"
 
 import { useTheme } from "@/components/theme-provider"
+import { useTelegramNativeBack } from "@/components/use-telegram-native-back"
 import { getTelegramWebApp, telegramFetch } from "@/lib/telegram"
 import { cn } from "@/lib/utils"
 
@@ -38,9 +39,7 @@ function subscribeToTelegramScanner() {
 function getTelegramScannerSnapshot() {
   const webApp = getTelegramWebApp()
   return Boolean(
-    webApp?.initData &&
-    webApp.isVersionAtLeast("6.4") &&
-    webApp.showScanQrPopup
+    webApp?.initData && webApp.isVersionAtLeast("6.4") && webApp.showScanQrPopup
   )
 }
 
@@ -122,6 +121,7 @@ function TelegramQrScanner() {
 }
 
 export function SettingsScreen() {
+  const nativeBackAvailable = useTelegramNativeBack("/my")
   const [programs, setPrograms] = React.useState<ProgramSetting[] | null>(null)
   const [reminder, setReminder] = React.useState("19:00")
   const [reminderEnabled, setReminderEnabled] = React.useState(false)
@@ -223,15 +223,17 @@ export function SettingsScreen() {
   const dark = resolvedTheme === "dark"
 
   return (
-    <div className="mx-auto min-h-dvh w-full max-w-[1280px] px-5 pt-[calc(28px+var(--app-safe-top))] pb-[calc(100px+var(--app-safe-bottom))] sm:px-8 lg:px-10 lg:pt-[calc(44px+var(--app-safe-top))] lg:pb-12">
+    <div className="mx-auto min-h-dvh w-full max-w-[1280px] px-5 pt-[calc(var(--app-page-top)+var(--app-safe-top))] pb-[calc(100px+var(--app-safe-bottom))] sm:px-8 lg:px-10 lg:pt-[calc(44px+var(--app-safe-top))] lg:pb-12">
       <header className="flex items-center gap-4">
-        <Link
-          href="/my"
-          aria-label="На экран Сегодня"
-          className="grid size-10 shrink-0 place-items-center rounded-2xl border bg-card transition-colors hover:bg-muted"
-        >
-          <HugeiconsIcon icon={ArrowLeft01Icon} size={20} strokeWidth={1.9} />
-        </Link>
+        {!nativeBackAvailable && (
+          <Link
+            href="/my"
+            aria-label="На экран Сегодня"
+            className="grid size-10 shrink-0 place-items-center rounded-2xl border bg-card transition-colors hover:bg-muted"
+          >
+            <HugeiconsIcon icon={ArrowLeft01Icon} size={20} strokeWidth={1.9} />
+          </Link>
+        )}
         <h1 className="text-[34px] leading-none font-semibold tracking-[-0.045em] sm:text-[46px]">
           Настройки
         </h1>

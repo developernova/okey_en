@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Geist_Mono, Inter } from "next/font/google"
 import Script from "next/script"
 
@@ -42,6 +42,12 @@ export const metadata: Metadata = {
       "Видео, фразы и разговорная практика в одном плане. Бесплатно, без рекламы и серий.",
     images: ["/og.png"],
   },
+}
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 }
 
 export default function RootLayout({

@@ -12,6 +12,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import Link from "next/link"
 
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
+import { useTelegramNativeBack } from "@/components/use-telegram-native-back"
 import { telegramFetch } from "@/lib/telegram"
 
 type PhraseDetails = {
@@ -108,6 +109,7 @@ async function requestTranscription(input: {
 }
 
 export function PhrasePracticeScreen({ cardId }: { cardId: string }) {
+  const nativeBackAvailable = useTelegramNativeBack("/my/phrases")
   const [phrase, setPhrase] = React.useState<PhraseDetails | null>(null)
   const [messages, setMessages] = React.useState<PracticeMessage[]>([])
   const [draft, setDraft] = React.useState("")
@@ -123,7 +125,7 @@ export function PhrasePracticeScreen({ cardId }: { cardId: string }) {
   const [voicePhase, setVoicePhase] = React.useState<VoicePhase>("idle")
   const [recordingSeconds, setRecordingSeconds] = React.useState(0)
   const [voiceError, setVoiceError] = React.useState<string | null>(null)
-  const bottomRef = React.useRef<HTMLDivElement | null>(null)
+  const messagesRef = React.useRef<HTMLElement | null>(null)
   const mediaStreamRef = React.useRef<MediaStream | null>(null)
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null)
   const discardRecordingRef = React.useRef(false)
@@ -214,7 +216,11 @@ export function PhrasePracticeScreen({ cardId }: { cardId: string }) {
 
   React.useEffect(() => {
     requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+      const container = messagesRef.current
+      container?.scrollTo({
+        top: container.scrollHeight,
+        behavior: "smooth",
+      })
     })
   }, [messages, sending])
 
@@ -290,12 +296,7 @@ export function PhrasePracticeScreen({ cardId }: { cardId: string }) {
   }
 
   async function startVoiceRecording() {
-    if (
-      !voiceSupported ||
-      voiceDisabled ||
-      sending ||
-      voicePhase !== "idle"
-    ) {
+    if (!voiceSupported || voiceDisabled || sending || voicePhase !== "idle") {
       return
     }
 
@@ -341,15 +342,17 @@ export function PhrasePracticeScreen({ cardId }: { cardId: string }) {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-[1120px] flex-col px-4 pt-[calc(16px+var(--app-safe-top))] sm:px-7 sm:pt-[calc(24px+var(--app-safe-top))] lg:px-10">
-      <header className="flex items-center gap-3 border-b pb-4 sm:pb-5">
-        <Link
-          href="/my/phrases"
-          aria-label="Вернуться к фразам"
-          className="grid size-10 shrink-0 place-items-center rounded-2xl border bg-card transition-colors hover:bg-muted"
-        >
-          <HugeiconsIcon icon={ArrowLeft01Icon} size={20} strokeWidth={1.9} />
-        </Link>
+    <div className="mx-auto flex h-dvh w-full max-w-[1120px] flex-col overflow-hidden px-4 pt-[calc(var(--app-compact-page-top)+var(--app-safe-top))] sm:px-7 lg:px-10 lg:pt-[calc(24px+var(--app-safe-top))]">
+      <header className="flex shrink-0 items-center gap-3 border-b pb-4 sm:pb-5">
+        {!nativeBackAvailable && (
+          <Link
+            href="/my/phrases"
+            aria-label="Вернуться к фразам"
+            className="grid size-10 shrink-0 place-items-center rounded-2xl border bg-card transition-colors hover:bg-muted"
+          >
+            <HugeiconsIcon icon={ArrowLeft01Icon} size={20} strokeWidth={1.9} />
+          </Link>
+        )}
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold">Разговор</p>
           <p className="truncate text-xs text-muted-foreground" lang="en">
@@ -361,92 +364,100 @@ export function PhrasePracticeScreen({ cardId }: { cardId: string }) {
         </span>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col">
-        <section className="mx-auto flex w-full max-w-[820px] flex-1 flex-col py-5 sm:py-7">
-          {phrase && (
-            <div className="mb-7 rounded-[24px] border bg-card p-5 shadow-sm sm:p-6">
-              <p
-                className="text-[24px] font-semibold tracking-[-0.035em] sm:text-[28px]"
-                lang="en"
-              >
-                {phrase.phrase}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {phrase.translationRu}
-              </p>
-              {phrase.contextSentence && (
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <section
+          ref={messagesRef}
+          className="mx-auto min-h-0 w-full max-w-[820px] flex-1 overflow-y-auto pt-8 pb-5 sm:pt-10 sm:pb-7"
+        >
+          <div>
+            {phrase && (
+              <div className="mb-7 rounded-[24px] border bg-card p-5 shadow-sm sm:p-6">
                 <p
-                  className="mt-4 border-l-2 border-foreground/15 pl-3 text-sm leading-6 text-muted-foreground"
+                  className="text-[24px] font-semibold tracking-[-0.035em] sm:text-[28px]"
                   lang="en"
                 >
-                  {phrase.contextSentence}
+                  {phrase.phrase}
                 </p>
-              )}
-            </div>
-          )}
-
-          <div className="flex-1 space-y-3">
-            {starting && (
-              <div className="w-fit rounded-[20px] rounded-bl-md bg-card px-4 py-3 text-sm text-muted-foreground shadow-sm">
-                Начинаем разговор
-              </div>
-            )}
-
-            {messages.map((message) => (
-              <div key={message.id}>
-                <div
-                  className={
-                    message.role === "user"
-                      ? "ml-auto max-w-[86%] rounded-[20px] rounded-br-md bg-foreground px-4 py-3 text-sm leading-6 text-background sm:max-w-[72%]"
-                      : "max-w-[90%] rounded-[20px] rounded-bl-md bg-card px-4 py-3 text-sm leading-6 shadow-sm sm:max-w-[76%]"
-                  }
-                >
-                  <p lang="en">{message.content}</p>
-                </div>
-                {message.correction && (
-                  <p className="mt-2 max-w-[90%] pl-2 text-xs leading-5 text-muted-foreground sm:max-w-[76%]">
-                    {message.correction}
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {phrase.translationRu}
+                </p>
+                {phrase.contextSentence && (
+                  <p
+                    className="mt-4 border-l-2 border-foreground/15 pl-3 text-sm leading-6 text-muted-foreground"
+                    lang="en"
+                  >
+                    {phrase.contextSentence}
                   </p>
                 )}
               </div>
-            ))}
-
-            {sending && (
-              <div
-                className="flex w-fit items-center gap-1.5 rounded-[20px] rounded-bl-md bg-card px-4 py-4 text-muted-foreground shadow-sm"
-                aria-label="Формируем ответ"
-              >
-                {[0, 1, 2].map((dot) => (
-                  <span
-                    key={dot}
-                    className="size-1.5 animate-bounce rounded-full bg-current"
-                    style={{ animationDelay: `${dot * 120}ms` }}
-                  />
-                ))}
-              </div>
             )}
 
-            {error && (
-              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
-                <p>{error}</p>
-                {messages.length === 0 && !starting && (
-                  <button
-                    type="button"
-                    onClick={() => void retryStart()}
-                    className="mt-2 font-semibold"
+            <div className="space-y-3">
+              {starting && (
+                <div className="w-fit rounded-[20px] rounded-bl-md bg-card px-4 py-3 text-sm text-muted-foreground shadow-sm">
+                  Начинаем разговор
+                </div>
+              )}
+
+              {messages.map((message) => (
+                <div key={message.id}>
+                  <div
+                    className={
+                      message.role === "user"
+                        ? "ml-auto max-w-[86%] rounded-[20px] rounded-br-md bg-primary px-4 py-3 text-sm leading-6 text-primary-foreground sm:max-w-[72%]"
+                        : "max-w-[90%] rounded-[20px] rounded-bl-md border bg-card px-4 py-3 text-sm leading-6 shadow-sm sm:max-w-[76%]"
+                    }
                   >
-                    Попробовать снова
-                  </button>
-                )}
-              </div>
-            )}
-            <div ref={bottomRef} aria-hidden="true" />
+                    <p lang="en">{message.content}</p>
+                  </div>
+                  {message.correction && (
+                    <p className="mt-2 max-w-[90%] rounded-[16px] bg-muted/70 px-3 py-2 text-xs leading-5 text-muted-foreground sm:max-w-[76%]">
+                      {message.correction}
+                    </p>
+                  )}
+                </div>
+              ))}
+
+              {sending && (
+                <div
+                  className="flex w-fit items-center gap-1.5 rounded-[20px] rounded-bl-md border bg-card px-4 py-4 text-muted-foreground shadow-sm"
+                  aria-label="Формируем ответ"
+                >
+                  {[0, 1, 2].map((dot) => (
+                    <span
+                      key={dot}
+                      className="size-1.5 animate-bounce rounded-full bg-current"
+                      style={{ animationDelay: `${dot * 120}ms` }}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {error && (
+                <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
+                  <p>{error}</p>
+                  {messages.length === 0 && !starting && (
+                    <button
+                      type="button"
+                      onClick={() => void retryStart()}
+                      className="mt-2 font-semibold"
+                    >
+                      Попробовать снова
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </section>
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-8 bg-linear-to-b from-background via-background/90 to-transparent sm:h-10"
+          aria-hidden="true"
+        />
 
         {messages.length > 0 && (
           <form
-            className="sticky bottom-0 mx-auto w-full max-w-[820px] bg-background/92 py-4 pb-[calc(16px+var(--app-safe-bottom))] backdrop-blur-xl sm:py-5"
+            className="mx-auto w-full max-w-[820px] shrink-0 bg-background/92 py-4 pb-[calc(16px+var(--app-safe-bottom))] backdrop-blur-xl sm:py-5"
             onSubmit={(event) => {
               event.preventDefault()
               void sendMessage()
@@ -516,10 +527,8 @@ export function PhrasePracticeScreen({ cardId }: { cardId: string }) {
               <button
                 type="submit"
                 aria-label="Отправить ответ"
-                disabled={
-                  !draft.trim() || sending || voicePhase !== "idle"
-                }
-                className="grid size-14 shrink-0 place-items-center rounded-[20px] bg-foreground text-background transition-opacity disabled:opacity-35"
+                disabled={!draft.trim() || sending || voicePhase !== "idle"}
+                className="grid size-14 shrink-0 place-items-center rounded-[20px] bg-primary text-primary-foreground transition-opacity disabled:opacity-35"
               >
                 <HugeiconsIcon icon={SentIcon} size={20} strokeWidth={1.9} />
               </button>

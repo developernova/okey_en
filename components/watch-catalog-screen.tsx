@@ -11,6 +11,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import Link from "next/link"
 
+import { useTelegramNativeBack } from "@/components/use-telegram-native-back"
 import { telegramFetch } from "@/lib/telegram"
 import { cn } from "@/lib/utils"
 
@@ -141,6 +142,11 @@ export function WatchCatalogScreen() {
   const [providers, setProviders] = React.useState<Provider[]>([])
   const [providersLoading, setProvidersLoading] = React.useState(false)
   const [fallbackUrl, setFallbackUrl] = React.useState<string | null>(null)
+  const closeSelected = React.useCallback(() => setSelected(null), [])
+  const nativeBackAvailable = useTelegramNativeBack(
+    "/my",
+    selected ? closeSelected : undefined
+  )
 
   React.useEffect(() => {
     let cancelled = false
@@ -244,15 +250,17 @@ export function WatchCatalogScreen() {
       : filtered
 
   return (
-    <div className="mx-auto w-full max-w-[1280px] px-5 pt-[calc(28px+var(--app-safe-top))] pb-10 sm:px-8 lg:px-10 lg:pt-[calc(44px+var(--app-safe-top))]">
+    <div className="mx-auto w-full max-w-[1280px] px-5 pt-[calc(var(--app-page-top)+var(--app-safe-top))] pb-10 sm:px-8 lg:px-10 lg:pt-[calc(44px+var(--app-safe-top))]">
       <header className="flex items-center gap-4">
-        <Link
-          href="/my"
-          aria-label="На экран Сегодня"
-          className="grid size-10 shrink-0 place-items-center rounded-2xl border bg-card transition-colors hover:bg-muted"
-        >
-          <HugeiconsIcon icon={ArrowLeft01Icon} size={20} strokeWidth={1.9} />
-        </Link>
+        {!nativeBackAvailable && (
+          <Link
+            href="/my"
+            aria-label="На экран Сегодня"
+            className="grid size-10 shrink-0 place-items-center rounded-2xl border bg-card transition-colors hover:bg-muted"
+          >
+            <HugeiconsIcon icon={ArrowLeft01Icon} size={20} strokeWidth={1.9} />
+          </Link>
+        )}
         <h1 className="text-[34px] leading-none font-semibold tracking-[-0.045em] sm:text-[46px]">
           Фильмы и сериалы
         </h1>

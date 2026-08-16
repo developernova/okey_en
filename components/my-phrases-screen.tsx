@@ -11,6 +11,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import Link from "next/link"
 
 import { telegramFetch } from "@/lib/telegram"
+import { useTelegramNativeBack } from "@/components/use-telegram-native-back"
 
 type PhraseItem = {
   id: string
@@ -27,6 +28,7 @@ type PhraseItem = {
 }
 
 export function MyPhrasesScreen() {
+  const nativeBackAvailable = useTelegramNativeBack("/my")
   const [items, setItems] = React.useState<PhraseItem[]>([])
   const [query, setQuery] = React.useState("")
   const [loading, setLoading] = React.useState(true)
@@ -76,15 +78,17 @@ export function MyPhrasesScreen() {
   })
 
   return (
-    <div className="mx-auto w-full max-w-[1280px] px-5 pt-[calc(28px+var(--app-safe-top))] pb-10 sm:px-8 lg:px-10 lg:pt-[calc(44px+var(--app-safe-top))]">
+    <div className="mx-auto w-full max-w-[1280px] px-5 pt-[calc(var(--app-page-top)+var(--app-safe-top))] pb-10 sm:px-8 lg:px-10 lg:pt-[calc(44px+var(--app-safe-top))]">
       <header className="flex items-center gap-4">
-        <Link
-          href="/my"
-          aria-label="На экран Сегодня"
-          className="grid size-10 shrink-0 place-items-center rounded-2xl border bg-card transition-colors hover:bg-muted"
-        >
-          <HugeiconsIcon icon={ArrowLeft01Icon} size={20} strokeWidth={1.9} />
-        </Link>
+        {!nativeBackAvailable && (
+          <Link
+            href="/my"
+            aria-label="На экран Сегодня"
+            className="grid size-10 shrink-0 place-items-center rounded-2xl border bg-card transition-colors hover:bg-muted"
+          >
+            <HugeiconsIcon icon={ArrowLeft01Icon} size={20} strokeWidth={1.9} />
+          </Link>
+        )}
         <h1 className="text-[34px] leading-none font-semibold tracking-[-0.045em] sm:text-[46px]">
           Мои фразы
         </h1>
@@ -182,7 +186,6 @@ export function MyPhrasesScreen() {
           ))}
         </div>
       )}
-
     </div>
   )
 }
