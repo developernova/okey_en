@@ -19,6 +19,7 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-control: var(--control);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
@@ -59,6 +60,7 @@
   --secondary-foreground: var(--foreground);
   --muted: oklch(0.956 0.008 92);
   --muted-foreground: oklch(0.52 0.012 80);
+  --control: oklch(0.945 0.008 92);
   --accent: var(--muted);
   --accent-foreground: var(--foreground);
   --destructive: oklch(0.58 0.19 28);
@@ -81,6 +83,7 @@
   --secondary-foreground: var(--foreground);
   --muted: oklch(0.24 0.008 75);
   --muted-foreground: oklch(0.7 0.01 85);
+  --control: oklch(0.185 0.008 75);
   --accent: var(--muted);
   --accent-foreground: var(--foreground);
   --destructive: oklch(0.7 0.17 25);
@@ -116,6 +119,7 @@
   --secondary-foreground: var(--tg-theme-text-color, #20211e);
   --muted: var(--secondary);
   --muted-foreground: var(--tg-theme-hint-color, #777872);
+  --control: color-mix(in srgb, var(--card) 55%, var(--background) 45%);
   --accent: var(--card);
   --accent-foreground: var(--tg-theme-text-color, #20211e);
   --destructive: var(--tg-theme-destructive-text-color, #c94b40);

@@ -542,6 +542,59 @@ export const dailyPlans = pgTable(
   ]
 )
 
+export type StoredDailyCatalogItem = {
+  id: string
+  tmdbId: number
+  mediaType: "movie" | "tv"
+  section: "marvel" | "movies" | "series" | "search"
+  title: string
+  originalTitle: string
+  overview: string
+  releaseYear: string
+  posterUrl: string
+  backdropUrl: string | null
+  rating: number
+  tmdbUrl: string
+  genreIds: number[]
+  learningLevel: "A2" | "B1" | "B2" | "C1"
+  languageSummaryRu: string
+  difficultyFactors: string[]
+  confidence: "low" | "medium" | "high"
+  analysisSource: "ai_metadata_estimate"
+  recommended: boolean
+  dailyRecommended: true
+  recommendationReasonRu: string
+}
+
+export const dailyCatalogRecommendations = pgTable(
+  "daily_catalog_recommendations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dailyPlanId: uuid("daily_plan_id")
+      .notNull()
+      .references(() => dailyPlans.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    planDate: date("plan_date").notNull(),
+    items: jsonb("items").$type<StoredDailyCatalogItem[]>().notNull(),
+    model: text("model").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("daily_catalog_recommendations_plan_unique").on(
+      table.dailyPlanId
+    ),
+    uniqueIndex("daily_catalog_recommendations_user_date_unique").on(
+      table.userId,
+      table.planDate
+    ),
+  ]
+)
+
 export const dailyPlanItems = pgTable(
   "daily_plan_items",
   {

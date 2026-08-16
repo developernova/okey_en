@@ -176,7 +176,7 @@ export function MyPhrasesScreen() {
                 </p>
                 <Link
                   href={`/my/phrases/${item.id}/practice`}
-                  className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl bg-muted px-3 text-xs font-semibold transition-colors hover:bg-accent"
+                  className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl bg-control px-3 text-xs font-semibold transition-colors hover:bg-muted"
                 >
                   <HugeiconsIcon icon={SentIcon} size={18} strokeWidth={1.8} />
                   Поговорить

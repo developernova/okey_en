@@ -2677,10 +2677,10 @@ export function CatchEnglishApp({
                   }}
                   placeholder={
                     interviewCompleted
-                      ? "Продолжить по теме видео"
-                      : "Напиши ответ по-английски"
+                      ? "Продолжить разговор"
+                      : "Ответ по-английски"
                   }
-                  className="min-h-14 min-w-0 flex-1 rounded-[20px] border bg-card px-4 py-4 text-sm shadow-sm outline-none focus:border-foreground"
+                  className="min-h-14 min-w-0 flex-1 rounded-[20px] border bg-control px-4 py-4 text-sm shadow-sm outline-none focus:border-foreground"
                 />
                 {voiceAvailable && (
                   <Button

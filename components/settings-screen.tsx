@@ -243,7 +243,7 @@ export function SettingsScreen() {
         <section className="rounded-[24px] border bg-card p-5">
           <h2 className="text-sm font-semibold">Оформление</h2>
           {isTelegramTheme ? (
-            <div className="mt-4 flex min-h-12 items-center gap-3 rounded-2xl bg-muted px-4">
+            <div className="mt-4 flex min-h-12 items-center gap-3 rounded-2xl bg-control px-4">
               <HugeiconsIcon icon={TelegramIcon} size={20} strokeWidth={1.8} />
               <div>
                 <p className="text-sm font-semibold">Как в Telegram</p>
@@ -259,7 +259,7 @@ export function SettingsScreen() {
                 onClick={() => setTheme("light")}
                 className={cn(
                   "flex h-12 items-center justify-center gap-2 rounded-2xl border text-sm font-semibold",
-                  !dark ? "border-foreground bg-muted" : "bg-background"
+                  !dark ? "border-foreground bg-control" : "bg-control"
                 )}
               >
                 <HugeiconsIcon icon={Sun03Icon} size={19} strokeWidth={1.8} />
@@ -270,7 +270,7 @@ export function SettingsScreen() {
                 onClick={() => setTheme("dark")}
                 className={cn(
                   "flex h-12 items-center justify-center gap-2 rounded-2xl border text-sm font-semibold",
-                  dark ? "border-foreground bg-muted" : "bg-background"
+                  dark ? "border-foreground bg-control" : "bg-control"
                 )}
               >
                 <HugeiconsIcon icon={Moon02Icon} size={19} strokeWidth={1.8} />
@@ -297,7 +297,7 @@ export function SettingsScreen() {
               type="time"
               value={reminder}
               onChange={(event) => setReminder(event.target.value)}
-              className="h-11 min-w-0 flex-1 rounded-xl bg-muted px-3 text-sm font-semibold tabular-nums outline-none"
+              className="h-11 min-w-0 flex-1 rounded-xl bg-control px-3 text-sm font-semibold tabular-nums outline-none"
             />
             <button
               type="button"
@@ -341,7 +341,7 @@ export function SettingsScreen() {
                   if (program.id) void selectProgram(program.id)
                 }}
                 className={cn(
-                  "flex w-full items-center gap-4 rounded-[20px] border bg-background p-3 text-left",
+                  "flex w-full items-center gap-4 rounded-[20px] border bg-control p-3 text-left",
                   program.isActive &&
                     "border-foreground ring-1 ring-foreground",
                   program.isPending && "border-[#6f9474] ring-1 ring-[#6f9474]",
