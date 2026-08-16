@@ -9,7 +9,9 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import Image from "next/image"
+import Link from "next/link"
 
+import { QrLoginOption } from "@/components/qr-login-option"
 import logoMark from "@/public/catch-english-mark.png"
 
 export const metadata: Metadata = {
@@ -43,7 +45,10 @@ function Icon({
 function Brand() {
   return (
     <span className="inline-flex items-center gap-2.5">
-      <span className="grid size-9 place-items-center overflow-hidden" aria-hidden="true">
+      <span
+        className="grid size-9 place-items-center overflow-hidden"
+        aria-hidden="true"
+      >
         <Image
           src={logoMark}
           alt=""
@@ -78,16 +83,16 @@ export default async function LoginPage({
   return (
     <main className="login-page flex min-h-dvh flex-col overflow-hidden bg-[#f7f6f2] text-[#20211e]">
       <header className="mx-auto flex w-full max-w-[1180px] items-center justify-between px-5 py-5 sm:px-8 lg:px-10 lg:py-6">
-        <a href="/landing" aria-label="Catch English — на главную">
+        <Link href="/" aria-label="Catch English — на главную">
           <Brand />
-        </a>
-        <a
-          href="/landing"
+        </Link>
+        <Link
+          href="/"
           className="inline-flex items-center gap-2 text-sm font-semibold text-[#62635d] transition-colors hover:text-[#20211e]"
         >
           <Icon icon={ArrowLeft01Icon} size={17} />
           На главную
-        </a>
+        </Link>
       </header>
 
       <div className="mx-auto grid w-full max-w-[1180px] flex-1 items-center gap-8 px-5 py-6 sm:gap-12 sm:px-8 sm:py-10 lg:grid-cols-[1fr_440px] lg:gap-16 lg:px-10 lg:py-8 xl:gap-24">
@@ -110,7 +115,10 @@ export default async function LoginPage({
                   <Icon icon={Cards01Icon} size={15} />
                   Сохранённая фраза
                 </p>
-                <p lang="en" className="mt-2 text-xl font-semibold tracking-[-0.025em]">
+                <p
+                  lang="en"
+                  className="mt-2 text-xl font-semibold tracking-[-0.025em]"
+                >
                   figure it out
                 </p>
               </div>
@@ -136,11 +144,11 @@ export default async function LoginPage({
           </div>
 
           <h2 className="mt-7 text-[30px] leading-[1.08] font-semibold tracking-[-0.04em]">
-            Войти через Telegram
+            Войти в Catch English
           </h2>
           <p className="mt-3 text-sm leading-6 text-[#686963]">
-            Откроем Telegram, ты подтвердишь аккаунт и сразу вернёшься в Catch
-            English.
+            Подтверди аккаунт через Telegram на этом устройстве или используй
+            телефон для входа на компьютере.
           </p>
 
           {error && (
@@ -158,10 +166,12 @@ export default async function LoginPage({
           >
             <span className="flex items-center gap-3">
               <Icon icon={TelegramIcon} size={22} />
-              Продолжить
+              Продолжить через Telegram
             </span>
             <Icon icon={ArrowRight01Icon} size={19} />
           </a>
+
+          <QrLoginOption />
 
           <div className="mt-5 flex items-start gap-3 text-xs leading-5 text-[#686963]">
             <span className="mt-0.5 text-[#607b63]">
@@ -172,7 +182,6 @@ export default async function LoginPage({
               к переписке.
             </p>
           </div>
-
         </section>
       </div>
 

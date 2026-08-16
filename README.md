@@ -107,7 +107,7 @@ Native clients use Telegram's OIDC authorization-code flow instead of sending Mi
 ```dotenv
 TELEGRAM_OIDC_CLIENT_ID=your-telegram-client-id
 TELEGRAM_OIDC_CLIENT_SECRET=replace-with-the-telegram-client-secret
-TELEGRAM_OIDC_CALLBACK_URL=https://api.example.com/api/auth/telegram/callback
+TELEGRAM_OIDC_CALLBACK_URL=https://en.dakhe.ru/api/auth/telegram/callback
 NATIVE_AUTH_RETURN_URL=catchenglish://auth
 ```
 

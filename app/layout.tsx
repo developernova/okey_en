@@ -5,14 +5,13 @@ import Script from "next/script"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
+import { publicAppOrigin } from "@/server/config/public-app-url"
 
 const inter = Inter({ subsets: ["cyrillic", "latin"], variable: "--font-sans" })
 const fontMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" })
 
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
-  ),
+  metadataBase: new URL(publicAppOrigin()),
   title: "Catch English — английский по коротким видео",
   description:
     "Короткие видео по уровню, фразы в контексте и разговорная практика. Обычно 20–30 минут. Бесплатно, без рекламы и серий.",

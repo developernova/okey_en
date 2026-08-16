@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import Link from "next/link"
 
 export const metadata: Metadata = {
   title: "Как Catch English использует данные",
@@ -46,8 +47,8 @@ export default function PrivacyPage() {
   return (
     <main className="min-h-dvh bg-[#f7f6f2] px-5 py-10 text-[#20211e] sm:px-8 lg:px-10">
       <div className="mx-auto max-w-[820px]">
-        <a
-          href="/landing"
+        <Link
+          href="/"
           className="inline-flex items-center gap-2 text-sm font-semibold text-[#566c59] hover:text-[#20211e]"
         >
           <HugeiconsIcon
@@ -58,7 +59,7 @@ export default function PrivacyPage() {
             focusable="false"
           />
           Catch English
-        </a>
+        </Link>
         <h1 className="mt-14 text-[40px] leading-[1.04] font-semibold tracking-[-0.045em] sm:text-[56px]">
           Как мы используем данные
         </h1>
@@ -69,7 +70,10 @@ export default function PrivacyPage() {
 
         <div className="mt-14 divide-y divide-[#d9d9d3] border-y border-[#d9d9d3]">
           {sections.map((section) => (
-            <section key={section.title} className="py-8 sm:grid sm:grid-cols-[220px_1fr] sm:gap-10">
+            <section
+              key={section.title}
+              className="py-8 sm:grid sm:grid-cols-[220px_1fr] sm:gap-10"
+            >
               <h2 className="text-lg font-semibold tracking-[-0.02em]">
                 {section.title}
               </h2>
@@ -98,8 +102,8 @@ export default function PrivacyPage() {
           </p>
           <p className="mt-3">
             Через этот же адрес можно запросить удаление аккаунта и связанной с
-            ним учебной истории. Укажи Telegram username, привязанный к аккаунту;
-            при необходимости мы попросим подтвердить владение им.
+            ним учебной истории. Укажи Telegram username, привязанный к
+            аккаунту; при необходимости мы попросим подтвердить владение им.
           </p>
         </section>
 
