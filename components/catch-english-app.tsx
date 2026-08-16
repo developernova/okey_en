@@ -22,6 +22,7 @@ import Image from "next/image"
 import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
+import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { CatchEnglishLanding } from "@/components/catch-english-landing"
 import { MyPhrasesScreen } from "@/components/my-phrases-screen"
 import { usePersonalAreaSession } from "@/components/personal-area-auth-gate"
@@ -2629,10 +2630,10 @@ export function CatchEnglishApp({
                 </div>
               )}
               <div className="flex items-end gap-2">
-                <textarea
+                <AutoResizeTextarea
                   aria-label="Ответ на английском"
-                  rows={1}
                   maxLength={600}
+                  maxHeight={176}
                   value={interviewDraft}
                   disabled={interviewLoading || voicePhase === "transcribing"}
                   onChange={(event) => setInterviewDraft(event.target.value)}
@@ -2647,7 +2648,7 @@ export function CatchEnglishApp({
                       ? "Продолжить по теме видео"
                       : "Напиши ответ по-английски"
                   }
-                  className="max-h-28 min-h-14 flex-1 resize-none rounded-[20px] border bg-card px-4 py-4 text-sm shadow-sm outline-none focus:border-foreground"
+                  className="min-h-14 min-w-0 flex-1 rounded-[20px] border bg-card px-4 py-4 text-sm shadow-sm outline-none focus:border-foreground"
                 />
                 {voiceAvailable && (
                   <Button

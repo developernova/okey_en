@@ -3,10 +3,13 @@
 import * as React from "react"
 import { usePathname } from "next/navigation"
 
+import { getTelegramWebApp } from "@/lib/telegram"
+
 type Theme = "light" | "dark"
 
 type ThemeContextValue = {
   resolvedTheme: Theme
+  isTelegramTheme: boolean
   setTheme: (theme: Theme) => void
 }
 
@@ -15,6 +18,8 @@ const themeListeners = new Set<() => void>()
 
 function readClientTheme(): Theme {
   if (typeof window === "undefined") return "light"
+  const webApp = getTelegramWebApp()
+  if (webApp?.initData && webApp.colorScheme) return webApp.colorScheme
   const saved = window.localStorage.getItem("catch-english:theme")
   if (saved === "light" || saved === "dark") return saved
   return window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -26,12 +31,15 @@ function subscribeToTheme(listener: () => void) {
   themeListeners.add(listener)
   const media = window.matchMedia("(prefers-color-scheme: dark)")
   const notify = () => listener()
+  const webApp = getTelegramWebApp()
   media.addEventListener("change", notify)
   window.addEventListener("storage", notify)
+  webApp?.onEvent?.("themeChanged", notify)
   return () => {
     themeListeners.delete(listener)
     media.removeEventListener("change", notify)
     window.removeEventListener("storage", notify)
+    webApp?.offEvent?.("themeChanged", notify)
   }
 }
 
@@ -44,6 +52,14 @@ function getServerTheme(): Theme {
   return "light"
 }
 
+function getTelegramThemeSnapshot() {
+  return Boolean(getTelegramWebApp()?.initData)
+}
+
+function getServerTelegramThemeSnapshot() {
+  return false
+}
+
 function ThemeProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const adminTheme = pathname.startsWith("/admin")
@@ -52,16 +68,34 @@ function ThemeProvider({ children }: { children: React.ReactNode }) {
     readClientTheme,
     getServerTheme
   )
+  const telegramThemeAvailable = React.useSyncExternalStore(
+    subscribeToTheme,
+    getTelegramThemeSnapshot,
+    getServerTelegramThemeSnapshot
+  )
   const resolvedTheme: Theme = adminTheme ? "light" : preferredTheme
+  const isTelegramTheme = !adminTheme && telegramThemeAvailable
 
   React.useEffect(() => {
     document.documentElement.classList.toggle("dark", resolvedTheme === "dark")
+    document.documentElement.classList.toggle(
+      "telegram-theme",
+      isTelegramTheme
+    )
     document.documentElement.style.colorScheme = resolvedTheme
-  }, [resolvedTheme])
+    const webApp = getTelegramWebApp()
+    if (isTelegramTheme && webApp) {
+      webApp.setHeaderColor?.("bg_color")
+      webApp.setBackgroundColor?.("bg_color")
+      if (webApp.isVersionAtLeast("7.10")) {
+        webApp.setBottomBarColor?.("bottom_bar_bg_color")
+      }
+    }
+  }, [isTelegramTheme, resolvedTheme])
 
   const value = React.useMemo<ThemeContextValue>(
-    () => ({ resolvedTheme, setTheme: updateTheme }),
-    [resolvedTheme]
+    () => ({ resolvedTheme, isTelegramTheme, setTheme: updateTheme }),
+    [isTelegramTheme, resolvedTheme]
   )
 
   return (

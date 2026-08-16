@@ -87,6 +87,41 @@
   --ring: oklch(0.6 0.01 80);
 }
 
+.telegram-theme {
+  --background: var(--tg-theme-bg-color, #f7f7f5);
+  --foreground: var(--tg-theme-text-color, #20211e);
+  --card: var(
+    --tg-theme-section-bg-color,
+    var(--tg-theme-secondary-bg-color, #ffffff)
+  );
+  --card-foreground: var(--tg-theme-text-color, #20211e);
+  --popover: var(
+    --tg-theme-section-bg-color,
+    var(--tg-theme-secondary-bg-color, #ffffff)
+  );
+  --popover-foreground: var(--tg-theme-text-color, #20211e);
+  --primary: var(--tg-theme-button-color, #20211e);
+  --primary-foreground: var(--tg-theme-button-text-color, #ffffff);
+  --secondary: var(--tg-theme-secondary-bg-color, #efefeb);
+  --secondary-foreground: var(--tg-theme-text-color, #20211e);
+  --muted: var(--tg-theme-secondary-bg-color, #efefeb);
+  --muted-foreground: var(--tg-theme-hint-color, #777872);
+  --accent: var(
+    --tg-theme-section-bg-color,
+    var(--tg-theme-secondary-bg-color, #efefeb)
+  );
+  --accent-foreground: var(--tg-theme-text-color, #20211e);
+  --destructive: var(--tg-theme-destructive-text-color, #c94b40);
+  --border: color-mix(
+    in srgb,
+    var(--tg-theme-section-separator-color, var(--tg-theme-hint-color, #777872))
+      34%,
+    transparent
+  );
+  --input: var(--border);
+  --ring: var(--tg-theme-link-color, var(--tg-theme-button-color, #56775b));
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

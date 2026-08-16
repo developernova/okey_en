@@ -9,6 +9,8 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useEffect, useState } from "react"
 
+import { getTelegramWebApp, telegramFetch } from "@/lib/telegram"
+
 type Phase =
   | "checking"
   | "authentication_required"
@@ -36,6 +38,17 @@ export function QrLoginApproval({
     let active = true
     const check = async () => {
       try {
+        await Promise.resolve()
+        const webApp = getTelegramWebApp()
+        if (webApp?.initData) {
+          if (!active) return
+          setUser({
+            firstName: webApp.initDataUnsafe?.user?.first_name,
+            username: webApp.initDataUnsafe?.user?.username,
+          })
+          setPhase("ready")
+          return
+        }
         let response = await fetch("/api/auth/web/session", {
           cache: "no-store",
         })
@@ -72,7 +85,7 @@ export function QrLoginApproval({
   const approve = async () => {
     setPhase("submitting")
     try {
-      const response = await fetch("/api/auth/qr/approve", {
+      const response = await telegramFetch("/api/auth/qr/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
@@ -95,7 +108,7 @@ export function QrLoginApproval({
   if (phase === "done") {
     return (
       <div className="text-center">
-        <div className="mx-auto grid size-14 place-items-center rounded-[20px] bg-[#e5efe4] text-[#4d7553]">
+        <div className="mx-auto grid size-14 place-items-center rounded-[20px] bg-muted text-foreground">
           <HugeiconsIcon
             icon={CheckmarkCircle02Icon}
             size={29}
@@ -105,12 +118,12 @@ export function QrLoginApproval({
         <h1 className="mt-6 text-[30px] leading-tight font-semibold tracking-[-0.04em]">
           Вход подтверждён
         </h1>
-        <p className="mt-3 text-sm leading-6 text-[#686963]">
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
           Catch English уже открывается на компьютере. Это окно можно закрыть.
         </p>
         <a
           href="/my"
-          className="mt-7 flex h-13 w-full items-center justify-center rounded-2xl border border-[#d8d8d1] bg-white text-sm font-semibold text-[#343530]"
+          className="mt-7 flex h-13 w-full items-center justify-center rounded-2xl border bg-card text-sm font-semibold text-foreground"
         >
           Открыть на телефоне
         </a>
@@ -120,7 +133,7 @@ export function QrLoginApproval({
 
   return (
     <div className="text-center">
-      <div className="mx-auto grid size-14 place-items-center rounded-[20px] bg-[#e5ebe3] text-[#566c59]">
+      <div className="mx-auto grid size-14 place-items-center rounded-[20px] bg-muted text-foreground">
         <HugeiconsIcon
           icon={ComputerPhoneSyncIcon}
           size={28}
@@ -130,21 +143,21 @@ export function QrLoginApproval({
       <h1 className="mt-6 text-[30px] leading-tight font-semibold tracking-[-0.04em]">
         Вход на компьютере
       </h1>
-      <p className="mt-3 text-sm leading-6 text-[#686963]">
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">
         Подтверди вход, только если QR-код сейчас открыт на твоём компьютере.
       </p>
 
       {authError && (
         <div
           role="alert"
-          className="mt-5 rounded-2xl border border-[#d9b9b2] bg-[#f8ece9] p-4 text-sm leading-6 text-[#7b463d]"
+          className="mt-5 rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm leading-6 text-destructive"
         >
           Не удалось подтвердить аккаунт через Telegram. Попробуй ещё раз.
         </div>
       )}
 
       {phase === "checking" && (
-        <div className="mt-7 flex h-13 items-center justify-center gap-2 text-sm text-[#686963]">
+        <div className="mt-7 flex h-13 items-center justify-center gap-2 text-sm text-muted-foreground">
           <HugeiconsIcon
             icon={Loading03Icon}
             size={20}
@@ -157,7 +170,7 @@ export function QrLoginApproval({
 
       {phase === "authentication_required" && (
         <>
-          <p className="mt-6 text-xs leading-5 text-[#7a7b74]">
+          <p className="mt-6 text-xs leading-5 text-muted-foreground">
             Сначала подтверди свой аккаунт через Telegram.
           </p>
           <a
@@ -172,8 +185,8 @@ export function QrLoginApproval({
 
       {(phase === "ready" || phase === "submitting") && (
         <>
-          <div className="mt-6 rounded-2xl border border-[#deddd7] bg-[#fafaf7] px-4 py-3 text-left">
-            <p className="text-[11px] font-semibold tracking-[0.06em] text-[#7a7b74] uppercase">
+          <div className="mt-6 rounded-2xl border bg-muted px-4 py-3 text-left">
+            <p className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
               Аккаунт
             </p>
             <p className="mt-1 text-sm font-semibold">
@@ -185,7 +198,7 @@ export function QrLoginApproval({
             type="button"
             onClick={() => void approve()}
             disabled={phase === "submitting"}
-            className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#20211e] text-[15px] font-semibold text-white disabled:opacity-60"
+            className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-foreground text-[15px] font-semibold text-background disabled:opacity-60"
           >
             {phase === "submitting" && (
               <HugeiconsIcon
@@ -201,7 +214,7 @@ export function QrLoginApproval({
       )}
 
       {(phase === "expired" || phase === "error") && (
-        <div className="mt-7 rounded-2xl border border-[#deddd7] bg-[#fafaf7] p-4 text-sm leading-6 text-[#686963]">
+        <div className="mt-7 rounded-2xl border bg-muted p-4 text-sm leading-6 text-muted-foreground">
           {phase === "expired"
             ? "Время QR-кода закончилось. Создай новый код на компьютере."
             : "Не удалось подтвердить вход. Вернись к компьютеру и создай новый QR-код."}
