@@ -83,6 +83,7 @@ export async function getToday(
   const planCalendarDate = new Date(`${plan.planDate}T00:00:00.000Z`)
 
   return {
+    planDate: plan.planDate,
     date: new Intl.DateTimeFormat("ru-RU", {
       timeZone: "UTC",
       weekday: "long",

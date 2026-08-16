@@ -494,8 +494,8 @@ export function PhrasePracticeScreen({ cardId }: { cardId: string }) {
                     event.currentTarget.form?.requestSubmit()
                   }
                 }}
-                placeholder="Напиши ответ по-английски"
-                className="min-h-14 min-w-0 flex-1 rounded-[20px] border bg-card px-4 py-4 text-sm shadow-sm outline-none focus:border-foreground"
+                placeholder="Ответ по-английски"
+                className="min-h-14 min-w-0 flex-1 rounded-[20px] border bg-control px-4 py-4 text-sm shadow-sm outline-none focus:border-foreground"
               />
               {voiceSupported && !voiceDisabled && (
                 <button
@@ -514,7 +514,7 @@ export function PhrasePracticeScreen({ cardId }: { cardId: string }) {
                   className={
                     voicePhase === "recording"
                       ? "grid size-14 shrink-0 place-items-center rounded-[20px] bg-destructive text-white"
-                      : "grid size-14 shrink-0 place-items-center rounded-[20px] bg-muted text-foreground"
+                      : "grid size-14 shrink-0 place-items-center rounded-[20px] bg-control text-foreground"
                   }
                 >
                   <HugeiconsIcon

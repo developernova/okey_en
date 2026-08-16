@@ -2,9 +2,11 @@
 
 import * as React from "react"
 import {
+  ArrowDown01Icon,
   ArrowLeft01Icon,
   ArrowUpRight01Icon,
   Film01Icon,
+  Loading03Icon,
   Search01Icon,
   StarIcon,
 } from "@hugeicons/core-free-icons"
@@ -35,12 +37,41 @@ type CatalogItem = {
   confidence: "low" | "medium" | "high"
   analysisSource: "ai_metadata_estimate"
   recommended: boolean
+  dailyRecommended?: boolean
+  recommendationReasonRu?: string
 }
 
 type Provider = {
   name: string
   url: string
   logoUrl: string | null
+}
+
+type CatalogPayload = {
+  data?: CatalogItem[]
+  learnerLevel?: string
+  page?: number
+  hasMore?: boolean
+  error?: { message?: string }
+}
+
+async function requestCatalogPage(page: number, query: string) {
+  const params = new URLSearchParams({ page: String(page) })
+  if (query) params.set("query", query)
+  const response = await telegramFetch(`/api/catalog?${params}`, {
+    cache: "no-store",
+  })
+  const payload = (await response.json()) as CatalogPayload
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.error?.message ?? "Не удалось открыть каталог")
+  }
+  return payload
+}
+
+function mergeCatalogItems(current: CatalogItem[], incoming: CatalogItem[]) {
+  return Array.from(
+    new Map([...current, ...incoming].map((item) => [item.id, item])).values()
+  )
 }
 
 const categories = [
@@ -137,8 +168,12 @@ export function WatchCatalogScreen() {
   const [selected, setSelected] = React.useState<CatalogItem | null>(null)
   const [query, setQuery] = React.useState("")
   const [category, setCategory] = React.useState<Category>("all")
+  const [page, setPage] = React.useState(1)
+  const [hasMore, setHasMore] = React.useState(true)
   const [loading, setLoading] = React.useState(true)
+  const [loadingMore, setLoadingMore] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [loadMoreError, setLoadMoreError] = React.useState<string | null>(null)
   const [providers, setProviders] = React.useState<Provider[]>([])
   const [providersLoading, setProvidersLoading] = React.useState(false)
   const [fallbackUrl, setFallbackUrl] = React.useState<string | null>(null)
@@ -155,26 +190,14 @@ export function WatchCatalogScreen() {
         const load = async () => {
           setLoading(true)
           setError(null)
+          setLoadMoreError(null)
           try {
-            const params = new URLSearchParams()
-            if (query.trim()) params.set("query", query.trim())
-            const response = await telegramFetch(
-              `/api/catalog${params.size > 0 ? `?${params}` : ""}`,
-              { cache: "no-store" }
-            )
-            const payload = (await response.json()) as {
-              data?: CatalogItem[]
-              learnerLevel?: string
-              error?: { message?: string }
-            }
-            if (!response.ok || !payload.data) {
-              throw new Error(
-                payload.error?.message ?? "Не удалось открыть каталог"
-              )
-            }
+            const payload = await requestCatalogPage(1, query.trim())
             if (!cancelled) {
-              setItems(payload.data)
+              setItems(payload.data ?? [])
               setLearnerLevel(payload.learnerLevel ?? "B1")
+              setPage(payload.page ?? 1)
+              setHasMore(payload.hasMore ?? false)
             }
           } catch (requestError) {
             if (!cancelled) {
@@ -197,6 +220,26 @@ export function WatchCatalogScreen() {
       window.clearTimeout(timeout)
     }
   }, [query])
+
+  const loadMore = React.useCallback(async () => {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    setLoadMoreError(null)
+    try {
+      const payload = await requestCatalogPage(page + 1, query.trim())
+      setItems((current) => mergeCatalogItems(current, payload.data ?? []))
+      setPage(payload.page ?? page + 1)
+      setHasMore(payload.hasMore ?? false)
+    } catch (requestError) {
+      setLoadMoreError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Не удалось загрузить ещё"
+      )
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [hasMore, loadingMore, page, query])
 
   React.useEffect(() => {
     if (!selected) return
@@ -238,7 +281,14 @@ export function WatchCatalogScreen() {
     }
   }, [selected])
 
-  const recommended = items.filter((item) => item.recommended).slice(0, 6)
+  const recommended = items
+    .filter((item) => item.recommended)
+    .sort(
+      (left, right) =>
+        Number(Boolean(right.dailyRecommended)) -
+        Number(Boolean(left.dailyRecommended))
+    )
+    .slice(0, 6)
   const filtered = query.trim()
     ? items
     : category === "recommended"
@@ -363,6 +413,28 @@ export function WatchCatalogScreen() {
         </section>
       )}
 
+      {!loading && !error && hasMore && (
+        <div className="mt-10 flex flex-col items-center gap-3">
+          <button
+            type="button"
+            disabled={loadingMore}
+            onClick={() => void loadMore()}
+            className="inline-flex h-11 items-center gap-2 rounded-2xl bg-control px-5 text-sm font-semibold transition-colors hover:bg-muted disabled:opacity-50"
+          >
+            <HugeiconsIcon
+              icon={loadingMore ? Loading03Icon : ArrowDown01Icon}
+              size={18}
+              strokeWidth={1.9}
+              className={loadingMore ? "animate-spin" : undefined}
+            />
+            {loadingMore ? "Загружаем" : "Показать ещё"}
+          </button>
+          {loadMoreError && (
+            <p className="text-xs text-destructive">{loadMoreError}</p>
+          )}
+        </div>
+      )}
+
       {selected && (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-0 backdrop-blur-sm sm:items-center sm:p-6"
@@ -411,6 +483,11 @@ export function WatchCatalogScreen() {
                 {selected.overview && (
                   <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
                     {selected.overview}
+                  </p>
+                )}
+                {selected.recommendationReasonRu && (
+                  <p className="mt-4 rounded-2xl bg-control px-4 py-3 text-sm leading-6 text-muted-foreground">
+                    {selected.recommendationReasonRu}
                   </p>
                 )}
                 <div className="mt-6 rounded-[22px] bg-muted/70 p-5">
