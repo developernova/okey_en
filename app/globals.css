@@ -35,6 +35,8 @@
 }
 
 :root {
+  --app-page-top: 28px;
+  --app-compact-page-top: 16px;
   --app-safe-top: max(
     env(safe-area-inset-top, 0px),
     var(--tg-safe-area-inset-top, 0px),
@@ -88,28 +90,33 @@
 }
 
 .telegram-theme {
+  --app-page-top: 52px;
+  --app-compact-page-top: 52px;
   --background: var(--tg-theme-bg-color, #f7f7f5);
   --foreground: var(--tg-theme-text-color, #20211e);
-  --card: var(
-    --tg-theme-section-bg-color,
-    var(--tg-theme-secondary-bg-color, #ffffff)
+  --card: color-mix(
+    in srgb,
+    var(
+        --tg-theme-section-bg-color,
+        var(--tg-theme-secondary-bg-color, var(--tg-theme-bg-color, #ffffff))
+      )
+      94%,
+    var(--tg-theme-text-color, #20211e) 6%
   );
   --card-foreground: var(--tg-theme-text-color, #20211e);
-  --popover: var(
-    --tg-theme-section-bg-color,
-    var(--tg-theme-secondary-bg-color, #ffffff)
-  );
+  --popover: var(--card);
   --popover-foreground: var(--tg-theme-text-color, #20211e);
   --primary: var(--tg-theme-button-color, #20211e);
   --primary-foreground: var(--tg-theme-button-text-color, #ffffff);
-  --secondary: var(--tg-theme-secondary-bg-color, #efefeb);
-  --secondary-foreground: var(--tg-theme-text-color, #20211e);
-  --muted: var(--tg-theme-secondary-bg-color, #efefeb);
-  --muted-foreground: var(--tg-theme-hint-color, #777872);
-  --accent: var(
-    --tg-theme-section-bg-color,
-    var(--tg-theme-secondary-bg-color, #efefeb)
+  --secondary: color-mix(
+    in srgb,
+    var(--tg-theme-bg-color, #f7f7f5) 88%,
+    var(--tg-theme-text-color, #20211e) 12%
   );
+  --secondary-foreground: var(--tg-theme-text-color, #20211e);
+  --muted: var(--secondary);
+  --muted-foreground: var(--tg-theme-hint-color, #777872);
+  --accent: var(--card);
   --accent-foreground: var(--tg-theme-text-color, #20211e);
   --destructive: var(--tg-theme-destructive-text-color, #c94b40);
   --border: color-mix(
@@ -145,8 +152,18 @@ body {
 }
 
 button,
-input {
+input,
+textarea,
+select {
   font: inherit;
+}
+
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
 }
 
 .admin-input {
@@ -309,8 +326,7 @@ input {
 }
 
 .landing-canvas-enter {
-  animation: landing-canvas-enter 680ms 150ms cubic-bezier(0.16, 1, 0.3, 1)
-    both;
+  animation: landing-canvas-enter 680ms 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .landing-practice-canvas {
@@ -327,8 +343,7 @@ input {
 
 .landing-phrase-bridge,
 .landing-phrase-bridge-mobile {
-  animation: landing-bridge-enter 560ms 850ms cubic-bezier(0.16, 1, 0.3, 1)
-    both;
+  animation: landing-bridge-enter 560ms 850ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .landing-practice-question {
@@ -337,8 +352,7 @@ input {
 }
 
 .landing-practice-answer {
-  animation: landing-answer-enter 560ms 840ms cubic-bezier(0.16, 1, 0.3, 1)
-    both;
+  animation: landing-answer-enter 560ms 840ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .landing-practice-feedback {

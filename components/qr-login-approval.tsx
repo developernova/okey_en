@@ -9,6 +9,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { useEffect, useState } from "react"
 
+import { useTelegramNativeBack } from "@/components/use-telegram-native-back"
 import { getTelegramWebApp, telegramFetch } from "@/lib/telegram"
 
 type Phase =
@@ -29,6 +30,7 @@ export function QrLoginApproval({
   token: string
   authError?: string
 }) {
+  useTelegramNativeBack("/my/settings")
   const [phase, setPhase] = useState<Phase>("checking")
   const [user, setUser] = useState<User>()
   const returnPath = `/login/qr/${token}`

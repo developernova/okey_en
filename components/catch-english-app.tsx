@@ -744,6 +744,11 @@ export function CatchEnglishApp({
   initialSection?: PrimarySection
 }) {
   const personalAreaSession = usePersonalAreaSession()
+  const nativeBackAvailable = React.useSyncExternalStore(
+    subscribeToTelegramEnvironment,
+    getTelegramBackSnapshot,
+    getServerTelegramBackSnapshot
+  )
   const resumeFromPersonalArea =
     personalAreaSession?.onboardingCompleted === true
   const [authMode, setAuthMode] = React.useState<AuthMode>(() =>
@@ -833,6 +838,14 @@ export function CatchEnglishApp({
       ? false
       : window.localStorage.getItem("okey-english:home-screen-prompted") === "1"
   )
+  const [dismissedTodayReturnPlanId, setDismissedTodayReturnPlanId] =
+    React.useState(() =>
+      typeof window === "undefined"
+        ? null
+        : window.localStorage.getItem(
+            "catch-english:dismissed-today-return-plan"
+          )
+    )
   const reviewSyncInFlight = React.useRef<Promise<void> | null>(null)
   const reviewSyncRequested = React.useRef(false)
   const planItemSyncInFlight = React.useRef<ReturnType<
@@ -855,7 +868,7 @@ export function CatchEnglishApp({
   const voiceLifecycle = React.useRef(0)
   const voiceRecordingInProgress = React.useRef(false)
   const voiceTranscriptionInProgress = React.useRef(false)
-  const interviewBottom = React.useRef<HTMLDivElement | null>(null)
+  const interviewScroll = React.useRef<HTMLDivElement | null>(null)
 
   React.useEffect(() => {
     screenRef.current = screen
@@ -914,9 +927,10 @@ export function CatchEnglishApp({
   React.useEffect(() => {
     if (screen !== "interview") return
     const frame = window.requestAnimationFrame(() => {
-      interviewBottom.current?.scrollIntoView({
+      const container = interviewScroll.current
+      container?.scrollTo({
+        top: container.scrollHeight,
         behavior: "smooth",
-        block: "end",
       })
     })
     return () => window.cancelAnimationFrame(frame)
@@ -1890,6 +1904,18 @@ export function CatchEnglishApp({
     setScreen("today")
   }
 
+  function leaveCompletedInterview() {
+    const planId = todayData?.plan.id
+    if (planId) {
+      window.localStorage.setItem(
+        "catch-english:dismissed-today-return-plan",
+        planId
+      )
+      setDismissedTodayReturnPlanId(planId)
+    }
+    leaveInterview()
+  }
+
   async function markVideoDone() {
     const saved = await persistPlanItem("watch")
     if (!saved) return
@@ -2453,16 +2479,18 @@ export function CatchEnglishApp({
 
   if (screen === "interview") {
     return (
-      <div className="flex min-h-dvh w-full flex-col">
-        <header className="mx-auto flex w-full max-w-[1120px] items-center gap-4 px-5 pt-[calc(20px+var(--app-safe-top))] pb-5 sm:px-8 lg:px-10 lg:pt-[calc(32px+var(--app-safe-top))]">
-          <button
-            type="button"
-            onClick={leaveInterview}
-            aria-label="Назад"
-            className="grid size-10 shrink-0 place-items-center rounded-2xl border bg-card transition-colors hover:bg-muted"
-          >
-            <Icon icon={ArrowLeft01Icon} />
-          </button>
+      <div className="flex h-dvh w-full flex-col overflow-hidden">
+        <header className="mx-auto flex w-full max-w-[1120px] shrink-0 items-center gap-4 px-5 pt-[calc(var(--app-page-top)+var(--app-safe-top))] pb-5 sm:px-8 lg:px-10 lg:pt-[calc(32px+var(--app-safe-top))]">
+          {!nativeBackAvailable && (
+            <button
+              type="button"
+              onClick={leaveInterview}
+              aria-label="Назад"
+              className="grid size-10 shrink-0 place-items-center rounded-2xl border bg-card transition-colors hover:bg-muted"
+            >
+              <Icon icon={ArrowLeft01Icon} />
+            </button>
+          )}
           <h1 className="min-w-0 flex-1 text-[26px] font-semibold tracking-[-0.035em] sm:text-[32px]">
             Обсуждение
           </h1>
@@ -2470,9 +2498,10 @@ export function CatchEnglishApp({
             {interviewCompleted ? 3 : Math.min(interviewAnswers + 1, 3)} из 3
           </span>
         </header>
-        <div className="mx-auto flex min-h-0 w-full max-w-[920px] flex-1 flex-col px-5 sm:px-8 lg:px-10">
+        <div className="relative mx-auto flex min-h-0 w-full max-w-[920px] flex-1 flex-col px-5 sm:px-8 lg:px-10">
           <div
-            className="flex-1 overflow-y-auto py-5 lg:py-8"
+            ref={interviewScroll}
+            className="min-h-0 flex-1 overflow-y-auto pt-8 pb-5 lg:pt-10 lg:pb-8"
             aria-live="polite"
           >
             <div className="space-y-5">
@@ -2485,7 +2514,7 @@ export function CatchEnglishApp({
                     <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-xl bg-[#f1e9d4] text-[#7a6630] dark:bg-[#352f20] dark:text-[#d6c17c]">
                       <Icon icon={Edit02Icon} size={14} />
                     </span>
-                    <div className="border-l-2 border-[#d8c276] py-0.5 pl-3 text-sm leading-6 text-muted-foreground">
+                    <div className="rounded-r-2xl border-l-2 border-[#d8c276] bg-muted/65 px-3 py-2 text-sm leading-6 text-muted-foreground">
                       {cleanLegacyInterviewText(message.text)}
                     </div>
                   </div>
@@ -2503,7 +2532,7 @@ export function CatchEnglishApp({
                       className={cn(
                         "grid size-9 shrink-0 place-items-center rounded-2xl",
                         message.role === "user"
-                          ? "bg-foreground text-background"
+                          ? "bg-primary text-primary-foreground"
                           : "bg-[#e3ece4] text-[#4e7455] dark:bg-[#223127] dark:text-[#a8c8ae]"
                       )}
                     >
@@ -2516,7 +2545,7 @@ export function CatchEnglishApp({
                       className={cn(
                         "rounded-[20px] px-4 py-3 text-sm leading-6 shadow-sm transition-opacity",
                         message.role === "user"
-                          ? "rounded-tr-md bg-foreground text-background"
+                          ? "rounded-tr-md bg-primary text-primary-foreground"
                           : "rounded-tl-md border bg-card",
                         message.delivery === "sending" && "opacity-75"
                       )}
@@ -2584,7 +2613,6 @@ export function CatchEnglishApp({
                   ))}
                 </div>
               )}
-              <div ref={interviewBottom} aria-hidden="true" />
             </div>
 
             {interviewError && (
@@ -2601,10 +2629,14 @@ export function CatchEnglishApp({
               </div>
             )}
           </div>
+          <div
+            className="pointer-events-none absolute inset-x-5 top-0 z-10 h-8 bg-linear-to-b from-background via-background/90 to-transparent sm:inset-x-8 lg:inset-x-10 lg:h-10"
+            aria-hidden="true"
+          />
 
           {interviewToken ? (
             <form
-              className="sticky bottom-0 bg-background/92 py-4 pb-[calc(16px+var(--app-safe-bottom))] backdrop-blur-xl lg:py-6"
+              className="shrink-0 bg-background/92 py-4 pb-[calc(16px+var(--app-safe-bottom))] backdrop-blur-xl lg:py-6"
               onSubmit={(event) => {
                 event.preventDefault()
                 void sendInterviewAnswer()
@@ -2711,16 +2743,17 @@ export function CatchEnglishApp({
                     </button>
                   </div>
                 )}
-              {interviewCompleted && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="mt-2 h-11 w-full rounded-2xl"
-                  onClick={leaveInterview}
-                >
-                  К экрану «Сегодня»
-                </Button>
-              )}
+              {interviewCompleted &&
+                dismissedTodayReturnPlanId !== todayData?.plan.id && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="mt-2 h-11 w-full rounded-2xl"
+                    onClick={leaveCompletedInterview}
+                  >
+                    К экрану «Сегодня»
+                  </Button>
+                )}
             </form>
           ) : null}
         </div>
@@ -3308,7 +3341,7 @@ function TaskCard({
           !skipped &&
           (showActionWhenDone
             ? "border-border bg-card"
-            : "border-transparent bg-muted/50 opacity-65")
+            : "border-border bg-card/80 opacity-75")
       )}
     >
       <div className="flex gap-3.5">

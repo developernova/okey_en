@@ -78,13 +78,12 @@ function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     document.documentElement.classList.toggle("dark", resolvedTheme === "dark")
-    document.documentElement.classList.toggle(
-      "telegram-theme",
-      isTelegramTheme
-    )
+    document.documentElement.classList.toggle("telegram-theme", isTelegramTheme)
     document.documentElement.style.colorScheme = resolvedTheme
     const webApp = getTelegramWebApp()
     if (isTelegramTheme && webApp) {
+      webApp.ready()
+      webApp.expand()
       webApp.setHeaderColor?.("bg_color")
       webApp.setBackgroundColor?.("bg_color")
       if (webApp.isVersionAtLeast("7.10")) {
