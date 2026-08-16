@@ -15,16 +15,18 @@ const optionalSecret = z.preprocess(
 
 const serverEnvSchema = z.object({
   DATABASE_URL: z.url(),
-  OPENAI_API_KEY: z.string().min(1),
+  OPENAI_API_KEY: optionalString,
   OPENAI_TEXT_MODEL: z.string().min(1).default("gpt-5.4-mini"),
   OPENROUTER_API_KEY: z.string().min(1),
   OPENROUTER_APP_URL: z.url().default("http://localhost:3000"),
-  OPENROUTER_APP_NAME: z.string().min(1).default("Okey English"),
+  OPENROUTER_APP_NAME: z.string().min(1).default("Catch English"),
   OPENROUTER_TRANSCRIPTION_MODEL: z
     .string()
     .min(1)
     .default("openai/whisper-large-v3"),
   YOUTUBE_API_KEY: optionalString,
+  TMDB_API_READ_TOKEN: optionalString,
+  KINOPOISK_API_KEY: optionalString,
   TELEGRAM_BOT_TOKEN: optionalString,
   TELEGRAM_WEB_APP_URL: optionalUrl,
   TELEGRAM_OIDC_CLIENT_ID: optionalString,

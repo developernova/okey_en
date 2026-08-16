@@ -130,6 +130,357 @@ input {
   box-shadow: 0 0 0 3px rgb(244 244 245);
 }
 
+@keyframes landing-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-header-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-canvas-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes landing-phrase-highlight {
+  from {
+    background-size: 0% 100%;
+  }
+  to {
+    background-size: 100% 100%;
+  }
+}
+
+@keyframes landing-bridge-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes landing-question-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes landing-answer-enter {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes landing-feedback-enter {
+  from {
+    opacity: 0;
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes landing-waveform-enter {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes login-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.landing-enter {
+  animation: landing-enter 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.landing-enter-delay-1 {
+  animation-delay: 90ms;
+}
+
+.landing-header-enter {
+  animation: landing-header-enter 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.landing-hero {
+  position: relative;
+  isolation: isolate;
+}
+
+.landing-hero::before {
+  position: absolute;
+  z-index: -1;
+  top: 7rem;
+  right: -10%;
+  width: min(58vw, 760px);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  content: "";
+  background: radial-gradient(
+    circle,
+    rgb(240 231 184 / 38%) 0%,
+    rgb(233 239 232 / 28%) 42%,
+    transparent 70%
+  );
+  pointer-events: none;
+}
+
+.landing-canvas-enter {
+  animation: landing-canvas-enter 680ms 150ms cubic-bezier(0.16, 1, 0.3, 1)
+    both;
+}
+
+.landing-practice-canvas {
+  transform: translateZ(0);
+}
+
+.landing-phrase-highlight {
+  background-image: linear-gradient(#f0e7b8, #f0e7b8);
+  background-repeat: no-repeat;
+  background-position: left center;
+  animation: landing-phrase-highlight 620ms 720ms cubic-bezier(0.22, 1, 0.36, 1)
+    both;
+}
+
+.landing-phrase-bridge,
+.landing-phrase-bridge-mobile {
+  animation: landing-bridge-enter 560ms 850ms cubic-bezier(0.16, 1, 0.3, 1)
+    both;
+}
+
+.landing-practice-question {
+  animation: landing-question-enter 520ms 680ms cubic-bezier(0.16, 1, 0.3, 1)
+    both;
+}
+
+.landing-practice-answer {
+  animation: landing-answer-enter 560ms 840ms cubic-bezier(0.16, 1, 0.3, 1)
+    both;
+}
+
+.landing-practice-feedback {
+  animation: landing-feedback-enter 600ms 1010ms cubic-bezier(0.16, 1, 0.3, 1)
+    both;
+}
+
+.landing-waveform {
+  display: inline-flex;
+  animation: landing-waveform-enter 620ms 980ms cubic-bezier(0.16, 1, 0.3, 1)
+    both;
+}
+
+.login-card-enter {
+  animation: login-card-enter 620ms 80ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.login-auth-card-enter {
+  animation-delay: 150ms;
+}
+
+.login-telegram-button {
+  transition:
+    transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 180ms ease,
+    box-shadow 200ms ease;
+}
+
+.login-telegram-button:hover {
+  transform: translateY(-1px);
+  background-color: #188fc6;
+  box-shadow: 0 12px 28px rgb(34 158 217 / 22%);
+}
+
+.login-telegram-button:active {
+  transform: scale(0.985);
+}
+
+.login-error {
+  animation: landing-enter 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.landing-skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 60;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: #20211e;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transform: translateY(-160%);
+  transition: transform 160ms ease;
+}
+
+.landing-skip-link:focus {
+  transform: translateY(0);
+}
+
+.landing-cta {
+  transition:
+    transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.landing-cta-arrow {
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.landing-cta:hover {
+  transform: translateY(-1px);
+  background-color: #343730;
+  box-shadow: 0 10px 24px rgb(31 33 30 / 14%);
+}
+
+.landing-cta:hover .landing-cta-arrow {
+  transform: translateX(3px);
+}
+
+.landing-cta:active {
+  transform: scale(0.985);
+}
+
+.landing-logo {
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.landing-logo:hover {
+  transform: scale(1.015);
+}
+
+.landing-nav-link {
+  position: relative;
+  transition: color 160ms ease;
+}
+
+.landing-nav-link::after {
+  position: absolute;
+  right: 0;
+  bottom: -5px;
+  left: 0;
+  height: 1px;
+  content: "";
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.landing-nav-link:hover::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
+.landing-motion-ready [data-landing-reveal] {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 700ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.landing-motion-ready [data-landing-reveal][data-reveal-delay="1"] {
+  transition-delay: 70ms;
+}
+
+.landing-motion-ready [data-landing-reveal][data-reveal-delay="2"] {
+  transition-delay: 140ms;
+}
+
+.landing-motion-ready [data-landing-reveal][data-reveal-delay="3"] {
+  transition-delay: 210ms;
+}
+
+.landing-motion-ready [data-landing-reveal].is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html.landing-page-active {
+    scroll-behavior: smooth;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-enter,
+  .landing-header-enter,
+  .landing-canvas-enter,
+  .landing-phrase-highlight,
+  .landing-phrase-bridge,
+  .landing-phrase-bridge-mobile,
+  .landing-practice-question,
+  .landing-practice-answer,
+  .landing-practice-feedback,
+  .landing-waveform,
+  .login-card-enter,
+  .login-error {
+    animation: none;
+  }
+
+  .landing-motion-ready [data-landing-reveal],
+  .landing-cta,
+  .landing-cta-arrow,
+  .landing-logo,
+  .landing-nav-link::after,
+  .landing-skip-link,
+  .login-telegram-button {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
 @media (max-width: 639px) {
   body {
     background: var(--tg-theme-bg-color, var(--background));

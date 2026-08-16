@@ -3,8 +3,8 @@ import type { Metadata } from "next"
 import { AdminApp } from "@/components/admin-app"
 
 export const metadata: Metadata = {
-  title: "Админка — Flow",
-  description: "Управление курсами и эпизодами Flow",
+  title: "Админка — Catch English",
+  description: "Управление курсами и эпизодами Catch English",
 }
 
 export default function AdminPage() {

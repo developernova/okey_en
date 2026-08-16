@@ -1,16 +1,24 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+const { testEnv } = vi.hoisted(() => ({
+  testEnv: {
+    OPENAI_API_KEY: "text-key" as string | undefined,
+    OPENAI_TEXT_MODEL: "gpt-5.4-mini",
+  },
+}))
 
 vi.mock("@/server/config/env", () => ({
-  env: () => ({
-    OPENAI_API_KEY: "text-key",
-    OPENAI_TEXT_MODEL: "gpt-5.4-mini",
-  }),
+  env: () => testEnv,
 }))
 
 import { generateInterviewQuestions } from "./openai"
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+beforeEach(() => {
+  testEnv.OPENAI_API_KEY = "text-key"
 })
 
 describe("OpenAI interview requests", () => {
@@ -95,5 +103,22 @@ describe("OpenAI interview requests", () => {
     expect(request).not.toHaveProperty("max_tokens")
     expect(request).not.toHaveProperty("provider")
     expect(request).not.toHaveProperty("session_id")
+  })
+
+  it("keeps the interview usable locally when the text key is absent", async () => {
+    testEnv.OPENAI_API_KEY = undefined
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      generateInterviewQuestions({
+        episodeId: "00000000-0000-4000-8000-000000000001",
+        transcript: "The family talks about the weather before they travel.",
+        learnerLevel: "A2",
+        knownVocabulary: ["family", "weather", "travel"],
+      })
+    ).resolves.toMatchObject({ questions: expect.any(Array) })
+
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

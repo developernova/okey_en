@@ -48,7 +48,32 @@ export function getTelegramWebApp() {
   return window.Telegram?.WebApp
 }
 
-export function telegramFetch(input: RequestInfo | URL, init?: RequestInit) {
+let webRefreshTask: Promise<boolean> | null = null
+
+function requestPath(input: RequestInfo | URL) {
+  if (typeof input === "string") return input
+  if (input instanceof URL) return input.pathname
+  return new URL(input.url).pathname
+}
+
+async function refreshWebSession() {
+  if (webRefreshTask) return webRefreshTask
+  webRefreshTask = fetch("/api/auth/web/refresh", {
+    method: "POST",
+    cache: "no-store",
+  })
+    .then((response) => response.ok)
+    .catch(() => false)
+    .finally(() => {
+      webRefreshTask = null
+    })
+  return webRefreshTask
+}
+
+export async function telegramFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit
+) {
   const headers = new Headers(init?.headers)
   const initData = getTelegramWebApp()?.initData
   if (initData) headers.set("x-telegram-init-data", initData)
@@ -57,6 +82,18 @@ export function telegramFetch(input: RequestInfo | URL, init?: RequestInit) {
     if (timezone) headers.set("x-user-timezone", timezone)
   }
 
+  const response = await fetch(input, { ...init, headers })
+  const path = requestPath(input)
+  if (
+    response.status !== 401 ||
+    initData ||
+    path.startsWith("/api/auth/web/refresh") ||
+    path.startsWith("/api/auth/telegram")
+  ) {
+    return response
+  }
+
+  if (!(await refreshWebSession())) return response
   return fetch(input, { ...init, headers })
 }
 

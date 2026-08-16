@@ -75,7 +75,7 @@ const telegramClaimsSchema = z.object({
 })
 
 export type StartTelegramOidcInput = {
-  platform: "ios" | "macos"
+  platform: "ios" | "macos" | "web"
   deviceId: string
   deviceName?: string
   handoffCodeChallenge: string
@@ -83,8 +83,16 @@ export type StartTelegramOidcInput = {
 
 export type ClaimedTelegramAuthAttempt = {
   id: string
+  platform: "ios" | "macos" | "web"
   oidcNonceHash: string
   oidcCodeVerifier: string
+}
+
+function claimedPlatform(
+  value: string
+): ClaimedTelegramAuthAttempt["platform"] {
+  if (value === "web" || value === "macos") return value
+  return "ios"
 }
 
 function configuredTelegramOidc(): TelegramOidcConfig {
@@ -234,6 +242,7 @@ export async function claimTelegramOidcAttempt(
     const [attempt] = await tx
       .select({
         id: telegramAuthAttempts.id,
+        platform: telegramAuthAttempts.platform,
         oidcNonceHash: telegramAuthAttempts.oidcNonceHash,
         oidcCodeVerifier: telegramAuthAttempts.oidcCodeVerifier,
       })
@@ -258,6 +267,7 @@ export async function claimTelegramOidcAttempt(
 
     return {
       id: attempt.id,
+      platform: claimedPlatform(attempt.platform),
       oidcNonceHash: attempt.oidcNonceHash,
       oidcCodeVerifier: attempt.oidcCodeVerifier,
     }
@@ -458,11 +468,19 @@ export async function completeTelegramOidcAttempt(
     )
   }
 
-  return buildNativeAuthRedirect({
-    nativeReturnUrl: config.nativeReturnUrl,
+  return {
     attemptId: attempt.id,
     handoffCode,
-  })
+    platform: attempt.platform,
+    redirectUrl:
+      attempt.platform === "web"
+        ? null
+        : buildNativeAuthRedirect({
+            nativeReturnUrl: config.nativeReturnUrl,
+            attemptId: attempt.id,
+            handoffCode,
+          }),
+  }
 }
 
 export async function failTelegramOidcAttempt(

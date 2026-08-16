@@ -216,6 +216,13 @@ async function extractChunk(input: {
   onUsage?: (usage: ImportLlmUsage) => void | Promise<void>
 }) {
   const config = env()
+  if (!config.OPENAI_API_KEY) {
+    throw new AppError(
+      "OPENAI_API_KEY is not configured",
+      503,
+      "OPENAI_NOT_CONFIGURED"
+    )
+  }
   const transcript = input.segments
     .map((segment) => `${segment.index}|${segment.offsetMs}|${segment.text}`)
     .join("\n")

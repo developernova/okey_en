@@ -150,6 +150,45 @@ const continuationTurnJsonSchema = {
   required: ["correction", "message"],
 } as const
 
+const localQuestionPlan = questionPlanSchema.parse({
+  questions: [
+    {
+      kind: "factual",
+      text: "Who is in the video?",
+      glossary: [
+        { word: "Who", lemma: "who", translationRu: "кто" },
+        { word: "is", lemma: "be", translationRu: "находится, является" },
+        { word: "in", lemma: "in", translationRu: "в" },
+        { word: "the", lemma: "the", translationRu: "определённый артикль" },
+        { word: "video", lemma: "video", translationRu: "видео" },
+      ],
+    },
+    {
+      kind: "retell",
+      text: "What happens in the video?",
+      glossary: [
+        { word: "What", lemma: "what", translationRu: "что" },
+        { word: "happens", lemma: "happen", translationRu: "происходит" },
+        { word: "in", lemma: "in", translationRu: "в" },
+        { word: "the", lemma: "the", translationRu: "определённый артикль" },
+        { word: "video", lemma: "video", translationRu: "видео" },
+      ],
+    },
+    {
+      kind: "transfer",
+      text: "Is this situation familiar to you?",
+      glossary: [
+        { word: "Is", lemma: "be", translationRu: "является" },
+        { word: "this", lemma: "this", translationRu: "эта" },
+        { word: "situation", lemma: "situation", translationRu: "ситуация" },
+        { word: "familiar", lemma: "familiar", translationRu: "знакомая" },
+        { word: "to", lemma: "to", translationRu: "для, к" },
+        { word: "you", lemma: "you", translationRu: "тебе" },
+      ],
+    },
+  ],
+})
+
 async function requestStructured<T>(input: {
   episodeId: string
   messages: InterviewPromptMessage[]
@@ -159,6 +198,13 @@ async function requestStructured<T>(input: {
   maxTokens: number
 }) {
   const config = env()
+  if (!config.OPENAI_API_KEY) {
+    throw new AppError(
+      "OPENAI_API_KEY is not configured",
+      503,
+      "OPENAI_NOT_CONFIGURED"
+    )
+  }
   let repairInstruction: string | undefined
   const body = (strictSchema: boolean) =>
     JSON.stringify({
@@ -270,6 +316,9 @@ export function generateInterviewQuestions(input: {
   learnerLevel: string
   knownVocabulary: string[]
 }) {
+  if (!env().OPENAI_API_KEY) {
+    return Promise.resolve(localQuestionPlan)
+  }
   return requestStructured({
     episodeId: input.episodeId,
     messages: buildQuestionPlanMessages(input.transcript, {
@@ -290,6 +339,13 @@ export function generateInterviewAnalysis(input: {
   questionKind: "factual" | "retell" | "transfer"
   answer: string
 }) {
+  if (!env().OPENAI_API_KEY) {
+    return Promise.resolve({
+      correction: null,
+      unknownWord: null,
+      reaction: null,
+    })
+  }
   const correction = requestStructured({
     episodeId: input.episodeId,
     messages: buildLanguageCorrectionMessages(input),
@@ -324,6 +380,12 @@ export function generateContinuationTurn(input: {
   knownVocabulary: string[]
   conversation: Array<{ role: "assistant" | "user"; content: string }>
 }) {
+  if (!env().OPENAI_API_KEY) {
+    return Promise.resolve({
+      correction: null,
+      message: "Tell me one more detail that you remember from the video.",
+    })
+  }
   return requestStructured({
     episodeId: input.episodeId,
     messages: buildContinuationMessages({

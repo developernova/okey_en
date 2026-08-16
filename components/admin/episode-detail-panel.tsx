@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from "react"
+import { ArrowLeft01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -183,7 +185,8 @@ export function EpisodeDetailPanel({
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <Button variant="outline" size="sm" onClick={onBack}>
-            ← Видео
+            <HugeiconsIcon icon={ArrowLeft01Icon} size={16} strokeWidth={1.8} />
+            Видео
           </Button>
           <div className="min-w-0">
             <h1 className="truncate text-xl font-semibold">

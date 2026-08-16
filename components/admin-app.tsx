@@ -479,7 +479,7 @@ export function AdminApp() {
           className="w-full max-w-sm rounded-xl border border-zinc-800 bg-zinc-900 p-6"
         >
           <div className="mb-6">
-            <div className="text-lg font-semibold">Okey English Admin</div>
+            <div className="text-lg font-semibold">Catch English Admin</div>
             <p className="mt-1 text-sm text-zinc-400">
               Рабочий доступ к каталогу и импортам
             </p>
@@ -554,7 +554,7 @@ export function AdminApp() {
             }}
             className="mr-auto text-left"
           >
-            <div className="text-sm font-semibold">Okey English</div>
+            <div className="text-sm font-semibold">Catch English</div>
             <div className="text-xs text-zinc-500">Управление контентом</div>
           </button>
           <nav className="order-3 flex w-full gap-1 overflow-x-auto sm:order-none sm:w-auto">

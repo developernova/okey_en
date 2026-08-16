@@ -11,7 +11,7 @@ vi.mock("@/server/config/env", () => ({
     OPENAI_TEXT_MODEL: "gpt-5.4-mini",
     OPENROUTER_API_KEY: "voice-key",
     OPENROUTER_APP_URL: "https://example.test",
-    OPENROUTER_APP_NAME: "Okey English Test",
+    OPENROUTER_APP_NAME: "Catch English Test",
     OPENROUTER_TRANSCRIPTION_MODEL: "openai/whisper-large-v3",
   }),
 }))
