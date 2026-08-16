@@ -58,6 +58,18 @@ scrolling, or session length.
 Watching a title, opening a provider link, or reading its language profile is
 neutral activity. None of these actions updates Today or spaced repetition.
 
+## Python ranking boundary
+
+Before the final AI choice, the finite TMDB candidate pool passes through the
+Python Language Fit Engine. It removes recent titles and duplicates, weighs
+CEFR fit above engagement, matches interests with TF-IDF, and reduces repeated
+near-identical recommendations. The model then receives that bounded ranking
+and writes the final short explanations.
+
+This component does not generate an endless feed and does not change Today or
+spaced repetition. It only makes the optional daily film selection more varied,
+level-appropriate, and explainable.
+
 ## MVP order
 
 1. Keep real provider links from Kinopoisk and an honest TMDB fallback.

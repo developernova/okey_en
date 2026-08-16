@@ -110,6 +110,7 @@ export async function getToday(
       isReady: comprehension.isReady,
       isEstimated: comprehension.isEstimated,
       knownLexemeCount: comprehension.knownLexemeCount,
+      languageFit: comprehension.languageFit,
     },
     queue: {
       ...baseQueue,

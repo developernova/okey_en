@@ -18,6 +18,7 @@ import {
   type CatalogItem,
 } from "@/server/catalog/catalog"
 import { env } from "@/server/config/env"
+import { rankMovieCandidates } from "@/server/language-engine/client"
 import { AppError } from "@/server/shared/errors"
 
 const recommendationPromptVersion = "daily-v1"
@@ -259,13 +260,34 @@ export async function ensureDailyCatalogRecommendations(input: {
       "CATALOG_RECOMMENDATION_EMPTY"
     )
   }
-  const selection = await rankDailyCandidates(candidates, {
+  const context = {
     learnerLevel,
     programTitle: episode?.programTitle ?? null,
     programDescription: episode?.programDescription ?? null,
     episodeTitle: episode?.episodeTitle ?? null,
+  }
+  const rankedIds = await rankMovieCandidates({
+    learnerLevel,
+    candidates,
+    preferenceText: [
+      context.programTitle,
+      context.programDescription,
+      context.episodeTitle,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .join(" "),
+    recentIds: [...recentIds],
+    limit: 12,
   })
-  const byId = new Map(candidates.map((item) => [item.id, item]))
+  const candidateById = new Map(candidates.map((item) => [item.id, item]))
+  const rankedCandidates =
+    rankedIds && rankedIds.length >= 6
+      ? rankedIds
+          .map((id) => candidateById.get(id))
+          .filter((item): item is CatalogItem => Boolean(item))
+      : candidates
+  const selection = await rankDailyCandidates(rankedCandidates, context)
+  const byId = new Map(rankedCandidates.map((item) => [item.id, item]))
   const items = selection.map((selected) => ({
     ...byId.get(selected.sourceId)!,
     recommended: true,
