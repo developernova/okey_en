@@ -26,6 +26,7 @@ import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { CatchEnglishLanding } from "@/components/catch-english-landing"
 import { MyPhrasesScreen } from "@/components/my-phrases-screen"
 import { usePersonalAreaSession } from "@/components/personal-area-auth-gate"
+import { TelegramQrScanner } from "@/components/telegram-qr-scanner"
 import { WatchCatalogScreen } from "@/components/watch-catalog-screen"
 import {
   InterviewTranscriptionRequestError,
@@ -2046,9 +2047,12 @@ export function CatchEnglishApp({
     return (
       <CatchEnglishShell>
         <div className="mx-auto flex min-h-dvh w-full max-w-[1280px] flex-col px-6 pb-[calc(24px+var(--app-safe-bottom))] lg:px-12 lg:pb-10">
-          <div className="flex items-center gap-2 pt-[calc(28px+var(--app-safe-top))] text-sm font-semibold tracking-tight lg:pt-[calc(40px+var(--app-safe-top))] lg:text-base">
-            <BrandMark size={28} />
-            Catch English
+          <div className="flex items-center justify-between gap-3 pt-[calc(28px+var(--app-safe-top))] text-sm font-semibold tracking-tight lg:pt-[calc(40px+var(--app-safe-top))] lg:text-base">
+            <div className="flex items-center gap-2">
+              <BrandMark size={28} />
+              Catch English
+            </div>
+            <TelegramQrScanner variant="compact" />
           </div>
           <div className="grid flex-1 items-center gap-10 py-10 lg:grid-cols-[minmax(0,0.92fr)_minmax(460px,1.08fr)] lg:gap-20 lg:py-16">
             <div className="order-2 lg:order-1">
