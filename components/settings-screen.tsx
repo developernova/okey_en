@@ -3,10 +3,8 @@
 import * as React from "react"
 import {
   ArrowLeft01Icon,
-  ComputerPhoneSyncIcon,
   Moon02Icon,
   Notification01Icon,
-  QrCode01Icon,
   Sun03Icon,
   TelegramIcon,
 } from "@hugeicons/core-free-icons"
@@ -14,8 +12,9 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import Link from "next/link"
 
 import { useTheme } from "@/components/theme-provider"
+import { TelegramQrScanner } from "@/components/telegram-qr-scanner"
 import { useTelegramNativeBack } from "@/components/use-telegram-native-back"
-import { getTelegramWebApp, telegramFetch } from "@/lib/telegram"
+import { telegramFetch } from "@/lib/telegram"
 import { cn } from "@/lib/utils"
 
 type ProgramSetting = {
@@ -30,94 +29,6 @@ type ProgramSetting = {
   isUnlocked: boolean
   unlockCoverage: number
   hasContent: boolean
-}
-
-function subscribeToTelegramScanner() {
-  return () => undefined
-}
-
-function getTelegramScannerSnapshot() {
-  const webApp = getTelegramWebApp()
-  return Boolean(
-    webApp?.initData && webApp.isVersionAtLeast("6.4") && webApp.showScanQrPopup
-  )
-}
-
-function getServerTelegramScannerSnapshot() {
-  return false
-}
-
-function qrApprovalPath(value: string) {
-  try {
-    const url = new URL(value, window.location.origin)
-    const match = url.pathname.match(/^\/login\/qr\/([A-Za-z\d_-]{43})$/)
-    return match ? `/login/qr/${match[1]}` : null
-  } catch {
-    return null
-  }
-}
-
-function TelegramQrScanner() {
-  const available = React.useSyncExternalStore(
-    subscribeToTelegramScanner,
-    getTelegramScannerSnapshot,
-    getServerTelegramScannerSnapshot
-  )
-  const [scanError, setScanError] = React.useState<string | null>(null)
-
-  if (!available) return null
-
-  function scan() {
-    const webApp = getTelegramWebApp()
-    if (!webApp?.showScanQrPopup) return
-    setScanError(null)
-    webApp.showScanQrPopup(
-      { text: "Наведи камеру на QR-код Catch English на компьютере" },
-      (value) => {
-        const path = qrApprovalPath(value)
-        if (!path) {
-          setScanError("Это не QR-код входа в Catch English")
-          return false
-        }
-        webApp.HapticFeedback?.impactOccurred("light")
-        window.location.assign(path)
-        return true
-      }
-    )
-  }
-
-  return (
-    <section className="rounded-[24px] border bg-card p-5">
-      <div className="flex items-center gap-3">
-        <span className="grid size-10 place-items-center rounded-xl bg-muted">
-          <HugeiconsIcon
-            icon={ComputerPhoneSyncIcon}
-            size={20}
-            strokeWidth={1.8}
-          />
-        </span>
-        <div>
-          <h2 className="text-sm font-semibold">Вход на компьютере</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Подтверди свой аккаунт через телефон
-          </p>
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={scan}
-        className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-foreground text-sm font-semibold text-background"
-      >
-        <HugeiconsIcon icon={QrCode01Icon} size={20} strokeWidth={1.8} />
-        Сканировать QR-код
-      </button>
-      {scanError && (
-        <p className="mt-3 text-xs text-destructive" aria-live="polite">
-          {scanError}
-        </p>
-      )}
-    </section>
-  )
 }
 
 export function SettingsScreen() {
