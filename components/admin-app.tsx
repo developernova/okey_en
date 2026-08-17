@@ -118,7 +118,22 @@ type Catalog = {
   jobs: IngestionJob[]
 }
 
-type AdminSection = "content" | "courses" | "import" | "jobs"
+type AdminUser = {
+  id: string
+  telegramUserId: string | null
+  firstName: string | null
+  lastName: string | null
+  username: string | null
+  levelEstimate: string | null
+  onboardingCompleted: boolean
+  lastActiveAt: string | null
+  createdAt: string
+  cardCount: number
+  planCount: number
+  programCount: number
+}
+
+type AdminSection = "content" | "courses" | "users" | "import" | "jobs"
 
 type ProgramDraft = {
   slug: string
@@ -197,11 +212,17 @@ export function AdminApp() {
   const [secret, setSecret] = React.useState("")
   const [loginError, setLoginError] = React.useState<string | null>(null)
   const [catalog, setCatalog] = React.useState<Catalog | null>(null)
+  const [users, setUsers] = React.useState<AdminUser[]>([])
   const [section, setSection] = React.useState<AdminSection>("content")
   const [loading, setLoading] = React.useState(false)
   const [notice, setNotice] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [query, setQuery] = React.useState("")
+  const [userQuery, setUserQuery] = React.useState("")
+  const [resettingUser, setResettingUser] = React.useState<AdminUser | null>(
+    null
+  )
+  const [resetConfirmation, setResetConfirmation] = React.useState("")
   const [programFilter, setProgramFilter] = React.useState("all")
   const [programDraft, setProgramDraft] = React.useState(blankProgram)
   const [showCreateProgram, setShowCreateProgram] = React.useState(false)
@@ -236,8 +257,12 @@ export function AdminApp() {
     setLoading(true)
     setError(null)
     try {
-      const data = await apiRequest<Catalog>("/api/admin/catalog")
+      const [data, userData] = await Promise.all([
+        apiRequest<Catalog>("/api/admin/catalog"),
+        apiRequest<AdminUser[]>("/api/admin/users"),
+      ])
       setCatalog(data)
+      setUsers(userData)
       setAuthenticated(true)
       setImportDraft((current) => {
         if (current.programId || data.programs.length === 0) return current
@@ -254,6 +279,7 @@ export function AdminApp() {
       if ((requestError as Error & { status?: number }).status === 401) {
         setAuthenticated(false)
         setCatalog(null)
+        setUsers([])
       } else {
         setError(
           requestError instanceof Error
@@ -306,6 +332,7 @@ export function AdminApp() {
     await fetch("/api/admin/session", { method: "DELETE" })
     setAuthenticated(false)
     setCatalog(null)
+    setUsers([])
   }
 
   async function mutate(action: () => Promise<unknown>, message: string) {
@@ -440,6 +467,25 @@ export function AdminApp() {
       setEditingEpisode(null)
       if (detailEpisodeId === episode.id) setDetailEpisodeId(null)
     }
+  }
+
+  function closeUserReset() {
+    setResettingUser(null)
+    setResetConfirmation("")
+  }
+
+  async function resetUserAccount(user: AdminUser) {
+    if (resetConfirmation.trim() !== "СБРОСИТЬ") return
+    const reset = await mutate(
+      () =>
+        apiRequest(`/api/admin/users/${user.id}/reset`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmation: resetConfirmation.trim() }),
+        }),
+      `Прогресс пользователя ${user.username ? `@${user.username}` : (user.telegramUserId ?? user.id)} сброшен`
+    )
+    if (reset) closeUserReset()
   }
 
   function selectImportProgram(programId: string) {
@@ -585,6 +631,19 @@ export function AdminApp() {
   const editingProgramData = catalog?.programs.find(
     (program) => program.id === editingProgram
   )
+  const normalizedUserQuery = userQuery.trim().toLocaleLowerCase("ru")
+  const visibleUsers = users.filter((user) => {
+    if (!normalizedUserQuery) return true
+    return [
+      user.firstName,
+      user.lastName,
+      user.username,
+      user.telegramUserId,
+      user.id,
+    ].some((value) =>
+      value?.toLocaleLowerCase("ru").includes(normalizedUserQuery)
+    )
+  })
   const nav: Array<{
     id: AdminSection
     label: string
@@ -592,12 +651,74 @@ export function AdminApp() {
   }> = [
     { id: "content", label: "Видео", icon: Video01Icon },
     { id: "courses", label: "Курсы", icon: BookOpen01Icon },
+    { id: "users", label: "Пользователи", icon: User03Icon },
     { id: "import", label: "Импорт", icon: Upload01Icon },
     { id: "jobs", label: "Запуски", icon: PlayListIcon },
   ]
 
   return (
     <div className="admin-shell min-h-screen bg-[#f7f8f7] text-[#172019]">
+      <Dialog
+        open={Boolean(resettingUser)}
+        onOpenChange={(open) => !open && closeUserReset()}
+      >
+        <DialogContent className="rounded-3xl border border-red-100 p-6 sm:max-w-lg">
+          <DialogHeader>
+            <span className="mb-2 grid size-11 place-items-center rounded-2xl bg-red-50 text-red-600">
+              <Icon icon={Delete02Icon} size={21} />
+            </span>
+            <DialogTitle className="text-xl font-semibold tracking-[-0.025em]">
+              Сбросить пользователя полностью?
+            </DialogTitle>
+            <DialogDescription className="leading-6">
+              {resettingUser
+                ? `${resettingUser.username ? `@${resettingUser.username}` : (resettingUser.telegramUserId ?? resettingUser.id)} начнёт обучение заново.`
+                : "Пользователь начнёт обучение заново."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-2xl bg-red-50/70 p-4 text-xs leading-5 text-red-800">
+            Будут безвозвратно удалены планы, карточки, прогресс, интервью,
+            напоминания и все активные сессии. Telegram-аккаунт останется
+            привязан.
+          </div>
+          <Field label="Для подтверждения введите СБРОСИТЬ">
+            <Input
+              value={resetConfirmation}
+              onChange={(event) => setResetConfirmation(event.target.value)}
+              autoComplete="off"
+              className="h-11 rounded-xl border-red-200 bg-white px-4 uppercase"
+              placeholder="СБРОСИТЬ"
+              autoFocus
+            />
+          </Field>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={closeUserReset}
+              className="rounded-xl"
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={
+                loading ||
+                !resettingUser ||
+                resetConfirmation.trim() !== "СБРОСИТЬ"
+              }
+              onClick={() =>
+                resettingUser && void resetUserAccount(resettingUser)
+              }
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+            >
+              {loading ? "Сбрасываем…" : "Сбросить пользователя"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={Boolean(editingEpisodeData)}
         onOpenChange={(open) => !open && setEditingEpisode(null)}
@@ -1149,6 +1270,113 @@ export function AdminApp() {
                 </section>
               )}
 
+              {section === "users" && (
+                <section>
+                  <PageHeading
+                    title="Пользователи"
+                    description="Аккаунты Telegram и состояние обучения"
+                    action={
+                      <Button
+                        variant="outline"
+                        onClick={() => void loadCatalog()}
+                        disabled={loading}
+                        className="h-10 gap-2 rounded-xl border-[#e0e5e1] bg-white px-4"
+                      >
+                        <Icon icon={RefreshIcon} size={17} />
+                        Обновить
+                      </Button>
+                    }
+                  />
+                  <div className="relative mb-4 max-w-xl">
+                    <span className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-[#859087]">
+                      <Icon icon={Search01Icon} size={18} />
+                    </span>
+                    <Input
+                      value={userQuery}
+                      onChange={(event) => setUserQuery(event.target.value)}
+                      placeholder="Имя, username, Telegram ID или UUID"
+                      className="h-11 rounded-xl border-[#e0e5e1] bg-white pr-4 pl-11"
+                    />
+                  </div>
+                  <div className="overflow-x-auto rounded-2xl border border-[#e2e7e2] bg-white shadow-[0_10px_35px_rgba(31,48,35,0.04)]">
+                    <Table>
+                      <TableHeader className="bg-[#fbfcfb]">
+                        <TableRow>
+                          <TableHead>Пользователь</TableHead>
+                          <TableHead>Telegram ID</TableHead>
+                          <TableHead>Уровень</TableHead>
+                          <TableHead>Данные</TableHead>
+                          <TableHead>Последняя активность</TableHead>
+                          <TableHead className="text-right">Действия</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {visibleUsers.map((user) => (
+                          <TableRow key={user.id}>
+                            <TableCell className="min-w-56 whitespace-normal">
+                              <div className="font-medium">
+                                {[user.firstName, user.lastName]
+                                  .filter(Boolean)
+                                  .join(" ") || "Без имени"}
+                              </div>
+                              <div className="mt-1 text-xs text-[#89928b]">
+                                {user.username ? `@${user.username}` : user.id}
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">
+                              {user.telegramUserId ?? "—"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  user.onboardingCompleted
+                                    ? "secondary"
+                                    : "outline"
+                                }
+                              >
+                                {user.levelEstimate ?? "Новый"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs text-[#667069]">
+                              {user.programCount} курс. · {user.planCount} план.
+                              · {user.cardCount} карт.
+                            </TableCell>
+                            <TableCell className="text-xs whitespace-nowrap text-[#667069]">
+                              {formatDate(user.lastActiveAt ?? user.createdAt)}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex justify-end">
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => {
+                                    setResetConfirmation("")
+                                    setResettingUser(user)
+                                  }}
+                                  className="rounded-xl"
+                                >
+                                  Сбросить
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {visibleUsers.length === 0 && (
+                          <TableRow>
+                            <TableCell
+                              colSpan={6}
+                              className="h-32 text-center text-zinc-500"
+                            >
+                              Пользователи не найдены
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </section>
+              )}
+
               {section === "import" && catalog && (
                 <section>
                   <PageHeading
@@ -1380,7 +1608,7 @@ export function AdminApp() {
             </>
           )}
         </main>
-        <nav className="fixed inset-x-3 bottom-3 z-30 grid grid-cols-4 rounded-2xl border border-[#e2e7e2] bg-white/95 p-1.5 shadow-[0_14px_40px_rgba(31,48,35,0.16)] backdrop-blur-xl md:hidden">
+        <nav className="fixed inset-x-3 bottom-3 z-30 grid grid-cols-5 rounded-2xl border border-[#e2e7e2] bg-white/95 p-1.5 shadow-[0_14px_40px_rgba(31,48,35,0.16)] backdrop-blur-xl md:hidden">
           {nav.map((item) => {
             const active = !detailEpisodeId && section === item.id
             return (

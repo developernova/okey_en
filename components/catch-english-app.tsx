@@ -1191,6 +1191,7 @@ export function CatchEnglishApp({
 
   React.useEffect(() => {
     if (authMode === "checking" || authMode === "anonymous") return
+    if (personalAreaSession?.onboardingCompleted === false) return
     let cancelled = false
     const resume = async () => {
       if (!cancelled) await openInitialSection()
@@ -1220,7 +1221,13 @@ export function CatchEnglishApp({
     return () => {
       cancelled = true
     }
-  }, [authMode, openInitialSection, syncPendingReviews, webSessionUser])
+  }, [
+    authMode,
+    openInitialSection,
+    personalAreaSession,
+    syncPendingReviews,
+    webSessionUser,
+  ])
 
   React.useEffect(() => {
     let midnightRefresh: number | null = null

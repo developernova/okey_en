@@ -3,7 +3,12 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 
-import { getTelegramWebApp, telegramFetch } from "@/lib/telegram"
+import { clearLearnerClientState } from "@/lib/learner-client-state"
+import {
+  getTelegramWebApp,
+  removeTelegramCloudFlag,
+  telegramFetch,
+} from "@/lib/telegram"
 
 type PersonalAreaSession = {
   onboardingCompleted: boolean
@@ -25,13 +30,35 @@ export function PersonalAreaAuthGate({
     const check = async () => {
       await Promise.resolve()
       if (getTelegramWebApp()?.initData) {
-        if (!cancelled) {
-          setSession({
-            onboardingCompleted:
-              window.localStorage.getItem(
-                "okey-english:onboarding-complete"
-              ) === "1",
+        try {
+          const response = await telegramFetch("/api/auth/profile", {
+            cache: "no-store",
           })
+          const payload = (await response.json()) as {
+            data?: { user?: { onboardingCompleted?: boolean } }
+          }
+          if (!response.ok || !payload.data?.user) {
+            throw new Error("profile_failed")
+          }
+          if (cancelled) return
+          const onboardingCompleted = Boolean(
+            payload.data.user.onboardingCompleted
+          )
+          if (!onboardingCompleted) {
+            clearLearnerClientState()
+            removeTelegramCloudFlag("onboarding_complete")
+            removeTelegramCloudFlag("home_screen_prompted")
+          }
+          setSession({ onboardingCompleted })
+        } catch {
+          if (!cancelled) {
+            setSession({
+              onboardingCompleted:
+                window.localStorage.getItem(
+                  "okey-english:onboarding-complete"
+                ) === "1",
+            })
+          }
         }
         return
       }

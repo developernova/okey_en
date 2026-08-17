@@ -15,6 +15,10 @@ type CloudStorage = {
     value: string,
     callback?: (error: string | null, stored?: boolean) => void
   ): CloudStorage
+  removeItem(
+    key: string,
+    callback?: (error: string | null, removed?: boolean) => void
+  ): CloudStorage
 }
 
 export type TelegramWebApp = {
@@ -149,5 +153,15 @@ export function getTelegramCloudFlag(
     return true
   } catch {
     return false
+  }
+}
+
+export function removeTelegramCloudFlag(key: string) {
+  const webApp = getTelegramWebApp()
+  if (!webApp?.isVersionAtLeast("6.9")) return
+  try {
+    webApp.CloudStorage?.removeItem(key)
+  } catch {
+    // The server profile remains authoritative if Telegram storage is absent.
   }
 }
